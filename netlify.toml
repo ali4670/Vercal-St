@@ -3,13 +3,14 @@
   publish = "dist"
   base = "/"
 
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+[build]
+  command = "npm run build"
+  publish = "dist"
+  base = "/"
 
 [build.environment]
   NODE_VERSION = "20"
+  NPM_FLAGS = "--include=dev"
 
 [context.production.environment]
   NODE_ENV = "production"
@@ -19,6 +20,11 @@
 
 [context.branch-deploy.environment]
   NODE_ENV = "development"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
 
 # Headers for caching
 [[headers]]
@@ -33,10 +39,3 @@
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
     Access-Control-Allow-Headers = "Authorization, Content-Type"
-
-# Automatic reloading configuration
-[dev]
-  command = "npm run dev"
-  port = 5173
-  targetPort = 5173
-  autoLaunch = true
