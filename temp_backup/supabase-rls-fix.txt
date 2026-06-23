@@ -1,0 +1,23 @@
+-- FIX RLS POLICIES FOR ADMINS
+-- Run this in your Supabase SQL Editor
+
+-- 1. Update Profiles Policy to allow Admins
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+
+CREATE POLICY "Users can update own profile" 
+ON profiles FOR UPDATE 
+USING (
+  auth.uid() = id 
+  OR 
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = true)
+);
+
+-- 2. Allow Admins to Delete profiles if needed
+CREATE POLICY "Admins can delete profiles" 
+ON profiles FOR DELETE 
+USING (
+  EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND is_admin = true)
+);
+
+-- 3. Make sure the admin email is set correctly (Run this once you sign up)
+-- UPDATE profiles SET is_admin = true WHERE id = 'YOUR_USER_ID';

@@ -1,0 +1,37 @@
+-- NEW EXAM ANALYTICS TABLES
+-- Run this in your Supabase SQL Editor
+
+-- 1. Track individual exam attempts
+CREATE TABLE IF NOT EXISTS exam_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  student_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+  level_id UUID REFERENCES levels(id) ON DELETE CASCADE,
+  score INTEGER NOT NULL,
+  total_questions INTEGER NOT NULL,
+  completed_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 2. Track question-level performance
+CREATE TABLE IF NOT EXISTS exam_responses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  attempt_id UUID REFERENCES exam_attempts(id) ON DELETE CASCADE,
+  question_id TEXT NOT NULL,
+  selected_option INTEGER NOT NULL,
+  is_correct BOOLEAN NOT NULL
+);
+
+-- 3. RLS Policies
+ALTER TABLE exam_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE exam_responses ENABLE ROW LEVEL SECURITY;
+
+-- Students can view their own attempts and results
+CREATE POLICY "Students view own attempts" ON exam_attempts FOR SELECT USING (auth.uid() = student_id);
+CREATE POLICY "Students view own responses" ON exam_responses FOR SELECT USING (EXISTS (SELECT 1 FROM exam_attempts WHERE exam_attempts.id = exam_responses.attempt_id AND student_id = auth.uid()));
+
+-- Moderators/Admins can view all
+CREATE POLICY "Moderators view all attempts" ON exam_attempts FOR SELECT USING (is_moderator());
+CREATE POLICY "Moderators view all responses" ON exam_responses FOR SELECT USING (is_moderator());
+
+-- Insert Policies
+CREATE POLICY "Students insert own attempts" ON exam_attempts FOR INSERT WITH CHECK (auth.uid() = student_id);
+CREATE POLICY "Students insert own responses" ON exam_responses FOR INSERT WITH CHECK (EXISTS (SELECT 1 FROM exam_attempts WHERE exam_attempts.id = exam_responses.attempt_id AND student_id = auth.uid()));

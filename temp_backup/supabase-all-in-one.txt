@@ -1,0 +1,79 @@
+-- ==========================================
+-- ST-COMPANY CONSOLIDATED SUPABASE SCHEMA
+-- Copy and run everything below in the SQL Editor
+-- ==========================================
+
+-- 1. PROFILES TABLE
+CREATE TABLE IF NOT EXISTS profiles (
+  id UUID REFERENCES auth.users ON DELETE CASCADE PRIMARY KEY,
+  username TEXT UNIQUE NOT NULL,
+  score INTEGER DEFAULT 0,
+  is_admin BOOLEAN DEFAULT false,
+  avatar_url TEXT,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 2. GAMES TABLE (Multiplayer X-O)
+CREATE TABLE IF NOT EXISTS games (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  player_x UUID REFERENCES profiles(id) NOT NULL,
+  player_o UUID REFERENCES profiles(id),
+  board JSONB DEFAULT '[null, null, null, null, null, null, null, null, null]'::jsonb,
+  current_turn TEXT DEFAULT 'X',
+  winner TEXT,
+  status TEXT DEFAULT 'pending',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 3. TODOS TABLE (Advanced Todo List)
+CREATE TABLE IF NOT EXISTS todos (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES auth.users ON DELETE CASCADE NOT NULL,
+  task TEXT NOT NULL,
+  description TEXT,
+  priority TEXT DEFAULT 'medium', -- 'low', 'medium', 'high', 'urgent'
+  category TEXT DEFAULT 'general',
+  is_completed BOOLEAN DEFAULT false,
+  due_date TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now())
+);
+
+-- 4. ENABLE RLS & REALTIME
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE games ENABLE ROW LEVEL SECURITY;
+ALTER TABLE todos ENABLE ROW LEVEL SECURITY;
+
+-- Add tables to realtime publication
+BEGIN;
+  DROP PUBLICATION IF EXISTS supabase_realtime;
+  CREATE PUBLICATION supabase_realtime FOR TABLE games, todos;
+COMMIT;
+
+-- 5. POLICIES
+-- Profiles
+DROP POLICY IF EXISTS "Public profiles are viewable by everyone" ON profiles;
+CREATE POLICY "Public profiles are viewable by everyone" ON profiles FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
+CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
+
+-- Games
+DROP POLICY IF EXISTS "View own games" ON games;
+CREATE POLICY "View own games" ON games FOR SELECT USING (auth.uid() = player_x OR auth.uid() = player_o);
+DROP POLICY IF EXISTS "Update own games" ON games;
+CREATE POLICY "Update own games" ON games FOR UPDATE USING (auth.uid() = player_x OR auth.uid() = player_o);
+DROP POLICY IF EXISTS "Create games" ON games;
+CREATE POLICY "Create games" ON games FOR INSERT WITH CHECK (auth.uid() = player_x);
+
+-- Todos
+DROP POLICY IF EXISTS "Users can view own todos" ON todos;
+CREATE POLICY "Users can view own todos" ON todos FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can manage own todos" ON todos;
+CREATE POLICY "Users can manage own todos" ON todos FOR ALL USING (auth.uid() = user_id);
+
+-- 6. STORAGE (Avatars)
+INSERT INTO storage.buckets (id, name, public) VALUES ('avatars', 'avatars', true) ON CONFLICT (id) DO NOTHING;
+DROP POLICY IF EXISTS "Public Access" ON storage.objects;
+CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING ( bucket_id = 'avatars' );
+DROP POLICY IF EXISTS "User Upload" ON storage.objects;
+CREATE POLICY "User Upload" ON storage.objects FOR INSERT WITH CHECK ( bucket_id = 'avatars' AND auth.uid()::text = (storage.foldername(name))[1] );

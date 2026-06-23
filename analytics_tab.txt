@@ -1,0 +1,283 @@
+﻿
+> function AnalyticsTab({ levelId, isAr }: { levelId: string | null; isAr: boolean }) {
+  // ... (rest of file)
+              {activeTab === "tasks" && <InternalTasks isAr={isAr} />}
+              function FailedExams({ isAr }: { isAr: boolean }) {
+                  const [failedAttempts, setFailedAttempts] = useState<any[]>([]);
+  
+                  useEffect(() => {
+                      fetchFailedAttempts();
+                  }, []);
+  
+                  const fetchFailedAttempts = async () => {
+                      const { data } = await supabase
+                          .from("exam_attempts")
+                          .select("*, profiles(username, id), levels(title)")
+                          .lt("score", 70);
+  
+                      if (data) setFailedAttempts(data);
+                  };
+  
+                  const approveProgression = async (studentId: string, levelId: string) 
+=> {
+                      await supabase.from("level_access").insert([{ user_id: studentId, 
+level_id: levelId }]);
+                      toast.success("Progression approved");
+                      fetchFailedAttempts();
+                  };
+  
+                  return (
+                      <div className="space-y-8">
+                          <h2 className="text-3xl font-black italic uppercase 
+tracking-tighter">
+                              {isAr ? "Ù…ØØ§ÙˆÙ„Ø§Øª Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø± Ø§Ù„ÙØ§Ø´Ù„Ø©" : 
+"FAILED EXAM ATTEMPTS"}
+                          </h2>
+                          <div className="grid gap-4">
+                              {failedAttempts.map(attempt => (
+                                  <div key={attempt.id} className="bg-white/5 border 
+border-white/10 p-6 rounded-2xl flex justify-between items-center">
+                                      <div>
+                                          <p 
+className="font-bold">{attempt.profiles?.username}</p>
+                                          <p className="text-xs 
+text-white/50">{attempt.levels?.title} - Score: {attempt.score}%</p>
+                                      </div>
+                                      <button onClick={() => 
+approveProgression(attempt.student_id, attempt.level_id)} className="bg-[#CCFF00] 
+text-black px-4 py-2 rounded-xl font-black text-xs uppercase">
+                                          {isAr ? "ØªØ¬Ø§ÙˆØ²" : "Approve Progression"}
+                                      </button>
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+                  );
+                  }
+  
+>                 function AnalyticsTab({ levelId, isAr }: { levelId: string | null; 
+isAr: boolean }) {
+    const [attempts, setAttempts] = useState<any[]>([]);
+    const [selectedAttempt, setSelectedAttempt] = useState<any>(null);
+    const [examQuestions, setExamQuestions] = useState<any[]>([]);
+  
+    useEffect(() => {
+      fetchAttempts();
+      if (levelId) fetchExamQuestions();
+    }, [levelId]);
+  
+    const fetchAttempts = async () => {
+      const query = supabase
+        .from("exam_attempts")
+        .select("*, profiles(username), exam_responses(*)")
+        .order("completed_at", { ascending: false });
+      
+      if (levelId) query.eq("level_id", levelId);
+      
+      const { data } = await query;
+      if (data) setAttempts(data);
+    };
+  
+    const fetchExamQuestions = async () => {
+      const { data } = await supabase.from("exams").select("questions").eq("level_id", 
+levelId).single();
+      if (data) setExamQuestions(data.questions as any[]);
+    };
+  
+    const [moderatorStats, setModeratorStats] = useState<any[]>([]);
+  
+    useEffect(() => {
+      fetchAttempts();
+      if (levelId) fetchExamQuestions();
+      fetchModeratorStats();
+  
+      const sub = supabase.channel('tasks_sync').on('postgres_changes' as any, { event: 
+'*', table: 'internal_tasks' }, fetchModeratorStats).subscribe();
+      return () => { supabase.removeChannel(sub); };
+    }, [levelId]);
+  
+    const fetchModeratorStats = async () => {
+      const { data } = await supabase
+          .from("internal_tasks")
+          .select("assigned_to_id, profiles(username, role)")
+          .eq("is_completed", true);
+      
+      if (data) {
+          const stats: Record<string, { username: string, count: number }> = {};
+          data.forEach(task => {
+              const uid = task.assigned_to_id;
+              const profile = Array.isArray(task.profiles) ? task.profiles[0] : 
+task.profiles;
+              if (uid && profile && profile.role !== 'admin' && profile.role !== 
+'moderator') {
+                  if (!stats[uid]) stats[uid] = { username: profile?.username || 
+"Unknown", count: 0 };
+                  stats[uid].count++;
+              }
+          });
+          const sorted = Object.values(stats).sort((a, b) => b.count - a.count).slice(0, 
+3);
+          setModeratorStats(sorted);
+      }
+    };
+  
+    return (
+      <div className="space-y-12">
+        {/* Leaderboard */}
+        <div className="bg-card border border-border p-8 rounded-3xl">
+          <h3 className="font-black italic uppercase tracking-tighter text-xl 
+mb-6">{isAr ? "Ø£ÙØ¶Ù„ Ø§Ù„Ù…Ø´Ø±ÙÙŠÙ†" : "TOP MODERATORS"}</h3>
+          <div className="space-y-4">
+              {moderatorStats.map((mod, i) => (
+                  <div key={i} className="flex justify-between items-center bg-muted p-4 
+rounded-xl">
+                      <div className="flex items-center gap-4">
+                          <div className="w-8 h-8 flex items-center justify-center 
+font-black bg-primary rounded-lg text-black">{i + 1}</div>
+                          <p className="font-bold">{mod.username}</p>
+                      </div>
+                      <p className="font-black">{mod.count} Tasks</p>
+                  </div>
+              ))}
+          </div>
+        </div>
+  
+        <div className="space-y-8">
+          <h2 className="text-3xl font-black italic uppercase tracking-tighter">
+            {isAr ? "ØªØ­Ù„ÙŠÙ„Ø§Øª Ø§Ù„Ø§Ø®ØªØ¨Ø§Ø±Ø§Øª" : "EXAM ANALYTICS"}
+          </h2>
+          <div className="grid grid-cols-1 gap-4">
+            {attempts.map((a) => (
+              <div key={a.id} className="bg-card border border-border p-6 rounded-3xl">
+                <div className="flex justify-between items-center cursor-pointer" 
+onClick={() => setSelectedAttempt(selectedAttempt?.id === a.id ? null : a)}>
+                  <div>
+                    <p className="font-bold">{a.profiles?.username || "Unknown 
+Student"}</p>
+                    <p className="text-xs text-muted-foreground">{new 
+Date(a.completed_at).toLocaleString()}</p>
+                  </div>
+                  <div className={`text-xl font-black ${a.score >= 70 ? "text-green-500" 
+: "text-destructive"}`}>
+                    {a.score}%
+                  </div>
+                </div>
+                
+                {selectedAttempt?.id === a.id && (
+                  <div className="mt-6 pt-6 border-t border-border space-y-4">
+                    {a.exam_responses.map((r: any, idx: number) => {
+                      const q = examQuestions.find(exQ => exQ.id === r.question_id);
+                      return (
+                        <div key={r.id} className={`p-4 rounded-xl ${r.is_correct ? 
+"bg-green-500/10" : "bg-destructive/10"}`}>
+                          <p className="font-bold mb-2">{idx + 1}. {q?.text || "Unknown 
+Question"}</p>
+                          <p className="text-sm">Student Answer: 
+{q?.options[r.selected_option]}</p>
+                          {!r.is_correct && <p className="text-sm 
+text-destructive">Correct Answer: {q?.options[q.correct]}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  
+  function SpotlightManagement({ isAr }: { isAr: boolean }) {
+    const [spotlight, setSpotlight] = useState<any>(null);
+    const [users, setUsers] = useState<any[]>([]);
+    const [selectedUserId, setSelectedUserId] = useState("");
+    const [title, setTitle] = useState("Employee of the Month");
+    const [description, setDescription] = useState("");
+    const [searchTerm, setSearchTerm] = useState("");
+    const [uploading, setUploading] = useState(false);
+    const [avatarUrl, setAvatarUrl] = useState("");
+    const fileInputRef = useRef<HTMLInputElement>(null);
+  
+    useEffect(() => {
+      fetchSpotlight();
+      fetchUsers();
+    }, []);
+  
+    const fetchSpotlight = async () => {
+      const { data } = await supabase.from("spotlight").select("*, 
+profiles(username)").single();
+      if (data) {
+          setSpotlight(data);
+          setTitle(data.title);
+          setDescription(data.description || "");
+          setAvatarUrl(data.avatar_override_url || "");
+          setSelectedUserId(data.user_id);
+      }
+    };
+  
+    const fetchUsers = async () => {
+      const { data } = await supabase.from("profiles").select("id, username");
+      if (data) setUsers(data);
+    };
+  
+    const filteredUsers = users.filter(u => u.username && 
+u.username.toLowerCase().includes(searchTerm.toLowerCase()));
+  
+    const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      setUploading(true);
+      try {
+        const fileExt = file.name.split(".").pop();
+        const fileName = `spotlight/${Date.now()}.${fileExt}`;
+        const { error } = await supabase.storage.from("avatars").upload(fileName, file);
+        if (error) throw error;
+        const { data } = supabase.storage.from("avatars").getPublicUrl(fileName);
+        setAvatarUrl(data.publicUrl);
+        toast.success("Avatar uploaded");
+      } catch (err: any) {
+        toast.error(err.message);
+      } finally {
+        setUploading(false);
+      }
+    };
+  
+    const updateSpotlight = async () => {
+      try {
+        await supabase.from("spotlight").delete().neq("id", 
+"00000000-0000-0000-0000-000000000000");
+        const { error } = await supabase.from("spotlight").insert([{ user_id: 
+selectedUserId, title, avatar_override_url: avatarUrl }]);
+        if (error) {
+          console.error("Supabase insert error:", error);
+          throw error;
+        }
+        toast.success("Spotlight updated");
+        fetchSpotlight();
+      } catch (err) {
+        console.error("Update spotlight error:", err);
+        toast.error("Failed to update spotlight");
+      }
+    };
+  
+    return (
+      <div className="space-y-8">
+        <h2 className="text-3xl font-black italic uppercase tracking-tighter">
+          {isAr ? "Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„ØªÙ…ÙŠØ²" : "SPOTLIGHT MANAGEMENT"}
+        </h2>
+        <div className="bg-card border border-border p-8 rounded-3xl space-y-4">
+          <label className="text-xs font-bold uppercase text-muted-foreground">Select 
+User</label>
+          <div className="flex flex-col gap-2">
+              <input 
+                  value={searchTerm} 
+                  onChange={(e) => setSearchTerm(e.target.value)} 
+                  className="w-full bg-muted p-4 rounded-xl border border-border" 
+                  placeholder="Type to filter users..." 
+              />
+              <select 
+                  value={selectedUserId} 
+
+
