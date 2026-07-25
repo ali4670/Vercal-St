@@ -926,7 +926,7 @@ function LecturePage() {
           setCanProgress(true);
         }
 
-        if (!manual && canAccessRes.data !== true && !isAdmin && !isModerator) {
+        if (!isApproved && !isAdmin && !isModerator) {
           navigate({ to: "/levels" });
           return;
         }
@@ -971,6 +971,115 @@ function LecturePage() {
     }
     return () => currentRef?.removeEventListener("scroll", handleScroll);
   }, [lecture, loading]);
+
+  // ── Study Session Tracking (video watch time → parent dashboard) ──
+  const sessionIdRef = useRef<string | null>(null);
+  const studyTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const accumulatedMinutesRef = useRef(0);
+  const isTrackingRef = useRef(false);
+  const isNativeVideoRef = useRef(false);
+
+  const startStudyTimer = useCallback(() => {
+    if (isTrackingRef.current) return;
+    isTrackingRef.current = true;
+    studyTimerRef.current = setInterval(() => {
+      accumulatedMinutesRef.current += 1;
+    }, 60_000);
+  }, []);
+
+  const stopStudyTimer = useCallback(() => {
+    isTrackingRef.current = false;
+    if (studyTimerRef.current) {
+      clearInterval(studyTimerRef.current);
+      studyTimerRef.current = null;
+    }
+  }, []);
+
+  const flushSession = useCallback(async () => {
+    if (sessionIdRef.current && accumulatedMinutesRef.current > 0) {
+      const mins = accumulatedMinutesRef.current;
+      accumulatedMinutesRef.current = 0;
+      await supabase
+        .from("study_sessions")
+        .update({ duration_minutes: mins })
+        .eq("id", sessionIdRef.current);
+    }
+  }, []);
+
+  // Detect if lecture has a native (non-YouTube) video
+  useEffect(() => {
+    isNativeVideoRef.current = !!(
+      lecture?.video_url &&
+      !lecture.video_url.includes("youtube.com") &&
+      !lecture.video_url.includes("youtu.be")
+    );
+  }, [lecture?.video_url]);
+
+  // Create study session on mount, end on unmount
+  useEffect(() => {
+    if (!user || isAdmin || isModerator) return;
+
+    let flushTimer: ReturnType<typeof setInterval> | null = null;
+
+    const createSession = async () => {
+      const { data, error } = await supabase
+        .from("study_sessions")
+        .insert({
+          student_id: user.id,
+          started_at: new Date().toISOString(),
+          duration_minutes: 0,
+          metadata: { lecture_id: lectureId },
+        })
+        .select("id")
+        .single();
+      if (!error && data) {
+        sessionIdRef.current = data.id;
+        // For YouTube / non-video: start timer immediately
+        // For native video: play/pause hooks will control it
+        if (!isNativeVideoRef.current) {
+          startStudyTimer();
+        }
+        flushTimer = setInterval(flushSession, 120_000);
+      }
+    };
+
+    createSession();
+
+    return () => {
+      stopStudyTimer();
+      if (flushTimer) clearInterval(flushTimer);
+      const sid = sessionIdRef.current;
+      const remaining = accumulatedMinutesRef.current;
+      if (sid) {
+        supabase
+          .from("study_sessions")
+          .update({
+            ended_at: new Date().toISOString(),
+            duration_minutes: remaining,
+          })
+          .eq("id", sid);
+      }
+      sessionIdRef.current = null;
+      accumulatedMinutesRef.current = 0;
+    };
+  }, [user, lectureId, isAdmin, isModerator, startStudyTimer, stopStudyTimer, flushSession]);
+
+  // Hook into native video play/pause/ended events
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid || !isNativeVideoRef.current) return;
+    const onPlay = () => startStudyTimer();
+    const onPause = () => { stopStudyTimer(); flushSession(); };
+    const onEnded = () => { stopStudyTimer(); flushSession(); };
+    vid.addEventListener("play", onPlay);
+    vid.addEventListener("pause", onPause);
+    vid.addEventListener("ended", onEnded);
+    return () => {
+      vid.removeEventListener("play", onPlay);
+      vid.removeEventListener("pause", onPause);
+      vid.removeEventListener("ended", onEnded);
+    };
+  }, [lecture?.video_url, startStudyTimer, stopStudyTimer, flushSession]);
 
   const [quizAnswers, setQuizAnswers] = useState<Record<string, number>>({});
   const [quizStatus, setQuizStatus] = useState<Record<string, "correct" | "incorrect">>({});

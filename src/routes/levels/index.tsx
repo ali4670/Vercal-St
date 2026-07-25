@@ -63,8 +63,8 @@ function LevelsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [groupName, setGroupName] = useState<string | null>(null);
-  const [moderatorName, setModeratorName] = useState<string | null>(null);
+  const [groupNames, setGroupNames] = useState<string[]>([]);
+  const [moderatorNames, setModeratorNames] = useState<string[]>([]);
 
   const fetchInitialData = useCallback(async () => {
     setLoading(true);
@@ -143,15 +143,14 @@ function LevelsPage() {
             setAccess(Array.from(accessMap.values()));
           }
           if (groupRes.data && groupRes.data.length > 0) {
-            const primary = groupRes.data.find(g => g.id === profileRes.data?.group_id) || groupRes.data[0];
-            setGroupName(primary.name);
-            if (primary.moderator_id) {
-              const { data: modProfile } = await supabase
+            setGroupNames(groupRes.data.map((g: any) => g.name));
+            const modIds = [...new Set(groupRes.data.filter((g: any) => g.moderator_id).map((g: any) => g.moderator_id))];
+            if (modIds.length > 0) {
+              const { data: modProfiles } = await supabase
                 .from("profiles")
-                .select("username")
-                .eq("id", primary.moderator_id)
-                .single();
-              if (modProfile) setModeratorName(modProfile.username);
+                .select("id, username")
+                .in("id", modIds);
+              if (modProfiles) setModeratorNames(modProfiles.map((m) => m.username));
             }
           }
         }
@@ -191,11 +190,23 @@ function LevelsPage() {
   const isLectureUnlocked = (lecture: Lecture) => {
     if (isAdmin || isModerator) return true;
 
-    // 1. Time-based Drip Check
-    const unlockDate = getDripUnlockDate(lecture.level_id, lecture.slot_number);
-    if (!unlockDate || unlockDate > new Date()) return false;
+    const hasAccess = access.some((a) => a.level_id === lecture.level_id);
 
-    // 2. Sequential Exam Prerequisite
+    if (hasAccess) {
+      // Time-based Drip Check
+      const unlockDate = getDripUnlockDate(lecture.level_id, lecture.slot_number);
+      if (!unlockDate || unlockDate > new Date()) return false;
+    } else {
+      // No group access: slot 1 always unlocked, rest depend on sequential completion
+      if (lecture.slot_number > 1) {
+        const prevLecture = lectures.find(
+          (l) => l.level_id === lecture.level_id && l.slot_number === lecture.slot_number - 1
+        );
+        if (prevLecture && !progress.includes(prevLecture.id)) return false;
+      }
+    }
+
+    // Sequential Exam Prerequisite
     if (lecture.slot_number > 1) {
       const prevLecture = lectures.find(
         (l) => l.level_id === lecture.level_id && l.slot_number === lecture.slot_number - 1
@@ -203,7 +214,7 @@ function LevelsPage() {
       if (prevLecture) {
         const isPrevCompleted = progress.includes(prevLecture.id);
         const submission = submissions.find((s) => s.lecture_id === prevLecture.id);
-        const isExamPassed = submission && submission.total_grade !== null && submission.total_grade >= 50; // Assuming 50 is passing
+        const isExamPassed = submission && submission.total_grade !== null && submission.total_grade >= 50;
 
         if (!isPrevCompleted || (prevLecture.quiz_required && !isExamPassed)) {
           return false;
@@ -216,8 +227,7 @@ function LevelsPage() {
 
   const isLevelAccessible = (level: Level) => {
     if (isAdmin || isModerator) return true;
-    if (access.some((a) => a.level_id === level.id)) return true;
-    return level.level_order === 1 && isApproved;
+    return true;
   };
 
   return (
@@ -244,17 +254,17 @@ function LevelsPage() {
             </p>
             <div className="h-[1px] w-20 bg-muted" />
           </div>
-          {user && groupName && (
+          {user && groupNames.length > 0 && (
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mt-4 inline-flex items-center gap-3 px-4 py-2 rounded-xl bg-primary/5 border border-primary/15 text-[10px] font-black uppercase tracking-widest text-muted-foreground"
+              className="mt-4 inline-flex items-center gap-3 px-4 py-2 rounded-xl bg-primary/5 border border-primary/15 text-[10px] font-black uppercase tracking-widest text-muted-foreground flex-wrap justify-center"
             >
-              <span>{isAr ? "المجموعة" : "GROUP"}: {groupName}</span>
-              {moderatorName && (
+              <span>{isAr ? "المجموعات" : "GROUPS"}: {groupNames.join(" / ")}</span>
+              {moderatorNames.length > 0 && (
                 <>
                   <span className="w-[1px] h-3 bg-border" />
-                  <span>{isAr ? "المشرف" : "MODERATOR"}: {moderatorName}</span>
+                  <span>{isAr ? "المشرف" : "MODERATOR"}: {moderatorNames.join(", ")}</span>
                 </>
               )}
             </motion.div>
@@ -376,7 +386,7 @@ function LevelsPage() {
                         </div>
                         <div className="mb-2 text-left">
                           <h2 className="text-lg md:text-2xl lg:text-3xl font-black italic uppercase tracking-tight text-foreground">
-                            {!isAdmin && !isModerator && groupName ? groupName : level.title}
+                            {level.title}
                           </h2>
                           <div className="flex items-center gap-4 mt-2">
                             <span className="text-muted-foreground text-[10px] font-black uppercase tracking-[0.2em]">

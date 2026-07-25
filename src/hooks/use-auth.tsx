@@ -100,6 +100,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       } else {
         setLoading(false);
       }
+    }).catch(() => {
+      setLoading(false);
     });
 
     // Listen for changes

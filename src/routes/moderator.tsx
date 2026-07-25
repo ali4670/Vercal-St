@@ -1009,9 +1009,22 @@ function UserManagement({ isAr }: { isAr: boolean }) {
 
   const fetchUsers = async () => {
     try {
-      const { data, error } = await supabase.from("profiles").select("*").order("xp", { ascending: false });
-      if (error) throw error;
-      setUsers(data);
+      const [usersRes, sgRes] = await Promise.all([
+        supabase.from("profiles").select("*").order("xp", { ascending: false }),
+        supabase.from("student_groups").select("student_id, group_id"),
+      ]);
+      if (usersRes.error) throw usersRes.error;
+      const sgMap = new Map<string, string[]>();
+      for (const sg of sgRes.data || []) {
+        const existing = sgMap.get(sg.student_id) || [];
+        existing.push(sg.group_id);
+        sgMap.set(sg.student_id, existing);
+      }
+      const enriched = (usersRes.data || []).map((u: any) => ({
+        ...u,
+        group_ids: sgMap.get(u.id) || (u.group_id ? [u.group_id] : []),
+      }));
+      setUsers(enriched);
       setLoading(false);
     } catch (err) {
       console.error("Error fetching users:", err);
@@ -1034,16 +1047,27 @@ function UserManagement({ isAr }: { isAr: boolean }) {
     if (data) setParentStudentLinks(data);
   };
 
-  const assignToGroup = async (userId: string, groupId: string | null) => {
-    const { error } = await supabase.from("profiles").update({ group_id: groupId || null }).eq("id", userId);
-    if (!error) {
-      if (groupId) {
-        await supabase.from("student_groups").upsert({ student_id: userId, group_id: groupId }, { onConflict: "student_id,group_id" });
+  const toggleGroup = async (userId: string, groupId: string, add: boolean) => {
+    if (add) {
+      const { error } = await supabase.from("student_groups").upsert({ student_id: userId, group_id: groupId }, { onConflict: "student_id,group_id" });
+      if (error) {
+        toast.error(error.message);
       } else {
-        await supabase.from("student_groups").delete().eq("student_id", userId);
+        toast.success(isAr ? "تمت إضافة المجموعة" : "Group added");
+        fetchUsers();
       }
-      toast.success(isAr ? "تم تحديث المجموعة" : "Group updated");
-      fetchUsers();
+    } else {
+      const { error: sgErr } = await supabase.from("student_groups").delete().eq("student_id", userId).eq("group_id", groupId);
+      const { data: profile } = await supabase.from("profiles").select("group_id").eq("id", userId).single();
+      if (profile?.group_id === groupId) {
+        await supabase.from("profiles").update({ group_id: null }).eq("id", userId);
+      }
+      if (sgErr) {
+        toast.error(sgErr.message);
+      } else {
+        toast.success(isAr ? "تمت إزالة المجموعة" : "Group removed");
+        fetchUsers();
+      }
     }
   };
 
@@ -1188,15 +1212,32 @@ function UserManagement({ isAr }: { isAr: boolean }) {
                                 </select>
                               </div>
 
-                              <div className="flex items-center gap-1.5">
+                              <div className="flex items-center gap-1.5 flex-wrap">
                                 <Users className="w-3 h-3 text-muted-foreground shrink-0" />
+                                {(user as any).group_ids?.length > 0 ? (
+                                  (user as any).group_ids.map((gid: string) => {
+                                    const g = groups.find(gr => gr.id === gid);
+                                    return g ? (
+                                      <span key={gid} className="inline-flex items-center gap-1 bg-primary/10 text-primary rounded-full px-2 py-0.5 text-[8px] font-bold">
+                                        {g.name}
+                                        <button onClick={() => toggleGroup(user.id, gid, false)} className="hover:text-primary/60 p-0.5">
+                                          <X className="w-3 h-3" />
+                                        </button>
+                                      </span>
+                                    ) : null;
+                                  })
+                                ) : (
+                                  <span className="text-[9px] text-muted-foreground/40">{isAr ? "بدون مجموعة" : "No group"}</span>
+                                )}
                                 <select
-                                    value={(user as any).group_id || ""}
-                                    onChange={(e) => assignToGroup(user.id, e.target.value || null)}
-                                    className="flex-1 bg-foreground/20 border border-border rounded-lg p-1.5 text-[9px] text-foreground"
+                                    value=""
+                                    onChange={(e) => {
+                                      if (e.target.value) toggleGroup(user.id, e.target.value, true);
+                                    }}
+                                    className="bg-foreground/20 border border-border rounded-lg px-2 py-1 text-[9px] text-foreground"
                                 >
-                                    <option value="">{isAr ? "بدون مجموعة" : "No Group"}</option>
-                                    {groups.map((g) => (
+                                    <option value="">{isAr ? "+ إضافة" : "+ Add"}</option>
+                                    {groups.filter(g => !(user as any).group_ids?.includes(g.id)).map((g) => (
                                       <option key={g.id} value={g.id}>{g.name}</option>
                                     ))}
                                 </select>
@@ -1271,15 +1312,32 @@ function UserManagement({ isAr }: { isAr: boolean }) {
                           {user.is_approved ? "OK" : "PEND"}
                         </button>
 
-                        <div className="flex items-center gap-1 bg-foreground/20 border border-border rounded-md md:rounded-lg h-7 md:h-9 px-1.5">
+                        <div className="flex items-center gap-1 bg-foreground/20 border border-border rounded-md md:rounded-lg h-7 md:h-9 px-1.5 flex-wrap">
                           <Users className="w-3 h-3 text-muted-foreground shrink-0" />
+                          {(user as any).group_ids?.length > 0 ? (
+                            (user as any).group_ids.map((gid: string) => {
+                              const g = groups.find(gr => gr.id === gid);
+                              return g ? (
+                                <span key={gid} className="inline-flex items-center gap-0.5 bg-primary/10 text-primary rounded-full px-1.5 py-0.5 text-[7px] md:text-[8px] font-bold">
+                                  {g.name}
+                                  <button onClick={() => toggleGroup(user.id, gid, false)} className="hover:text-primary/60 p-0.5">
+                                    <X className="w-2.5 h-2.5" />
+                                  </button>
+                                </span>
+                              ) : null;
+                            })
+                          ) : (
+                            <span className="text-[7px] md:text-[8px] text-muted-foreground/40">{isAr ? "بدون" : "None"}</span>
+                          )}
                           <select
-                              value={(user as any).group_id || ""}
-                              onChange={(e) => assignToGroup(user.id, e.target.value || null)}
-                              className="bg-transparent text-[8px] md:text-[9px] text-foreground focus:outline-none max-w-[60px] md:max-w-[100px]"
+                              value=""
+                              onChange={(e) => {
+                                if (e.target.value) toggleGroup(user.id, e.target.value, true);
+                              }}
+                              className="bg-transparent text-[8px] md:text-[9px] text-foreground focus:outline-none"
                           >
-                              <option value="">{isAr ? "بدون" : "None"}</option>
-                              {groups.map((g) => (
+                              <option value="">{isAr ? "+" : "+"}</option>
+                              {groups.filter(g => !(user as any).group_ids?.includes(g.id)).map((g) => (
                                 <option key={g.id} value={g.id}>{g.name}</option>
                               ))}
                           </select>
@@ -2014,8 +2072,31 @@ function TaskSubmissionsGrid({ lectureId, levelId, isAr }: { lectureId: string; 
 
   const loadData = async () => {
     setLoading(true);
+
+    // Get moderator's groups and their students
+    const { data: myGroups } = await supabase
+      .from("groups")
+      .select("id")
+      .eq("moderator_id", user?.id);
+    const groupIds = myGroups?.map((g: any) => g.id) || [];
+
+    let studentIds: string[] = [];
+    if (groupIds.length > 0) {
+      const { data: sgData } = await supabase
+        .from("student_groups")
+        .select("student_id")
+        .in("group_id", groupIds);
+      studentIds = sgData?.map((s: any) => s.student_id) || [];
+    }
+
     const [subsRes, studentsRes] = await Promise.all([
-      supabase.from("lecture_task_submissions").select("*, profiles:student_id(username, avatar_url)").eq("lecture_id", lectureId),
+      (() => {
+        let q = supabase.from("lecture_task_submissions").select("*, profiles:student_id(username, avatar_url)").eq("lecture_id", lectureId);
+        if (groupIds.length > 0 && studentIds.length > 0) {
+          q = q.in("student_id", studentIds);
+        }
+        return q;
+      })(),
       supabase.from("profiles").select("id, username, avatar_url").eq("role", "student"),
     ]);
     setSubmissions(subsRes.data || []);
@@ -2117,20 +2198,23 @@ function TaskSubmissionsGrid({ lectureId, levelId, isAr }: { lectureId: string; 
       </div>
 
       {gradingModal && (
-        <div className="fixed inset-0 z-[250] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setGradingModal(null)}>
-          <div className="bg-card border border-border rounded-3xl p-6 max-w-lg w-full space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[250] bg-black/80 backdrop-blur-md flex items-center justify-center p-4" onClick={() => setGradingModal(null)}>
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }} 
+            animate={{ scale: 1, opacity: 1 }}
+            className="bg-[#141414] border border-white/10 rounded-3xl p-6 max-w-lg w-full space-y-4 shadow-2xl shadow-black/50" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-black uppercase tracking-widest">{isAr ? "تقييم المهمة" : "GRADE TASK"}</h3>
+              <h3 className="text-sm font-black uppercase tracking-widest text-white">{isAr ? "تقييم المهمة" : "GRADE TASK"}</h3>
               <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-black px-2 py-1 rounded-full ${gradingModal.status === 'approved' ? 'bg-green-500/20 text-green-500' : gradingModal.status === 'rejected' ? 'bg-red-500/20 text-red-500' : gradingModal.status === 'pending' ? 'bg-yellow-500/20 text-yellow-500' : 'bg-muted text-muted-foreground'}`}>
+                <span className={`text-[10px] font-black px-2 py-1 rounded-full ${gradingModal.status === 'approved' ? 'bg-green-500/20 text-green-400' : gradingModal.status === 'rejected' ? 'bg-red-500/20 text-red-400' : gradingModal.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-white/10 text-white/50'}`}>
                   {gradingModal.status?.toUpperCase()}
                 </span>
-                <button onClick={() => setGradingModal(null)} className="p-2 rounded-xl bg-muted hover:bg-muted/80"><X className="w-4 h-4" /></button>
+                <button onClick={() => setGradingModal(null)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"><X className="w-4 h-4" /></button>
               </div>
             </div>
-            <img src={gradingModal.image_url} className="w-full max-h-[50vh] object-contain rounded-2xl border border-border" alt="" />
+            <img src={gradingModal.image_url} className="w-full max-h-[50vh] object-contain rounded-2xl border border-white/10 bg-black/50" alt="" />
             <div className="flex items-center gap-4">
-              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{isAr ? "الدرجة" : "GRADE"}</label>
+              <label className="text-[10px] font-black uppercase tracking-widest text-white/40">{isAr ? "الدرجة" : "GRADE"}</label>
               <input
                 type="range" min={0} max={100} value={gradeValue}
                 onChange={(e) => setGradeValue(Number(e.target.value))}
@@ -2139,12 +2223,12 @@ function TaskSubmissionsGrid({ lectureId, levelId, isAr }: { lectureId: string; 
               <span className="text-lg font-black text-primary w-12 text-right">{gradeValue}</span>
             </div>
             <div>
-              <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-1">{isAr ? "ملاحظات" : "FEEDBACK"}</label>
+              <label className="text-[10px] font-black uppercase tracking-widest text-white/40 block mb-1">{isAr ? "ملاحظات" : "FEEDBACK"}</label>
               <textarea
                 value={feedbackValue}
                 onChange={(e) => setFeedbackValue(e.target.value)}
                 placeholder={isAr ? "اكتب ملاحظات..." : "Write feedback..."}
-                className="w-full px-3 py-2 text-sm rounded-xl border border-border bg-muted/30 resize-none"
+                className="w-full px-3 py-2 text-sm rounded-xl border border-white/10 bg-white/5 text-white placeholder:text-white/30 resize-none"
                 rows={2}
               />
             </div>
@@ -2152,7 +2236,7 @@ function TaskSubmissionsGrid({ lectureId, levelId, isAr }: { lectureId: string; 
               <button
                 onClick={handleGrade}
                 disabled={saving}
-                className="py-3 bg-muted text-foreground rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                className="py-3 bg-white/10 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-white/15 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 {isAr ? "حفظ الدرجة" : "SAVE GRADE"}
@@ -2160,7 +2244,7 @@ function TaskSubmissionsGrid({ lectureId, levelId, isAr }: { lectureId: string; 
               <button
                 onClick={handleApprove}
                 disabled={saving}
-                className="py-3 bg-green-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                className="py-3 bg-emerald-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-emerald-500 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                 {isAr ? "موافقة" : "APPROVE"}
@@ -2168,13 +2252,13 @@ function TaskSubmissionsGrid({ lectureId, levelId, isAr }: { lectureId: string; 
               <button
                 onClick={handleReject}
                 disabled={saving}
-                className="py-3 bg-red-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                className="py-3 bg-red-600 text-white rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-red-500 transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-red-500/20"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
                 {isAr ? "رفض" : "REJECT"}
               </button>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
     </div>
@@ -3799,22 +3883,22 @@ function InternalTasks({ isAr }: { isAr: boolean }) {
       </div>
 
       {selectedTask && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-card/90 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }} 
             animate={{ scale: 1, opacity: 1 }}
-            className="bg-[#111] border border-border p-8 rounded-[40px] max-w-lg w-full shadow-2xl"
+            className="bg-[#141414] border border-white/10 p-8 rounded-[40px] max-w-lg w-full shadow-2xl shadow-black/50"
           >
-            <h3 className="text-2xl font-black italic uppercase mb-2">{selectedTask.title}</h3>
-            <p className="text-muted-foreground text-sm mb-6">{selectedTask.description}</p>
+            <h3 className="text-2xl font-black italic uppercase mb-2 text-white">{selectedTask.title}</h3>
+            <p className="text-white/50 text-sm mb-6">{selectedTask.description}</p>
             <div className="grid grid-cols-2 gap-4 mb-8">
-               <div className="p-4 bg-foreground/20 rounded-2xl border border-border">
-                 <p className="text-[8px] font-black uppercase text-muted-foreground">Timeline</p>
-                 <p className="text-sm font-bold">{selectedTask.timeline}</p>
+               <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                 <p className="text-[8px] font-black uppercase text-white/40">Timeline</p>
+                 <p className="text-sm font-bold text-white">{selectedTask.timeline}</p>
                </div>
-               <div className="p-4 bg-foreground/20 rounded-2xl border border-border">
-                 <p className="text-[8px] font-black uppercase text-muted-foreground">Effort</p>
-                 <p className="text-sm font-bold">{selectedTask.course_time}</p>
+               <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
+                 <p className="text-[8px] font-black uppercase text-white/40">Effort</p>
+                 <p className="text-sm font-bold text-white">{selectedTask.course_time}</p>
                </div>
             </div>
             <HeroButton onClick={() => setSelectedTask(null)} className="w-full">
@@ -4115,60 +4199,60 @@ function GradingHub({ isAr }: { isAr: boolean }) {
 
       <AnimatePresence>
         {selectedSub && (
-            <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-card/95 backdrop-blur-md">
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/80 backdrop-blur-md">
                 <motion.div 
                     initial={{ scale: 0.9, opacity: 0 }} 
                     animate={{ scale: 1, opacity: 1 }}
-                    className="bg-background border border-border p-5 md:p-8 rounded-2xl md:rounded-3xl max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
+                    className="bg-[#141414] border border-white/10 p-5 md:p-8 rounded-2xl md:rounded-3xl max-w-2xl w-full shadow-2xl shadow-black/50 max-h-[90vh] overflow-y-auto custom-scrollbar"
                 >
                     <header className="flex justify-between items-start mb-10">
                         <div>
-                            <h3 className="text-3xl font-black italic uppercase tracking-tighter mb-1">
+                            <h3 className="text-3xl font-black italic uppercase tracking-tighter mb-1 text-white">
                                 {isAr ? "تصحيح الإجابات" : "EXAMINATION FILE"}
                             </h3>
                             <p className="text-emerald-400/60 text-[10px] font-black uppercase tracking-widest">
                                 AGENT: {selectedSub.profiles?.username} // MODULE: {selectedSub.lecture_templates?.title}
                             </p>
                         </div>
-                        <button onClick={() => setSelectedSub(null)} className="p-3 rounded-full bg-muted/50 hover:bg-red-500 transition-all">
+                        <button onClick={() => setSelectedSub(null)} className="p-3 rounded-full bg-white/5 hover:bg-red-500/20 text-white/60 hover:text-red-400 transition-all">
                             <X className="w-5 h-5" />
                         </button>
                     </header>
 
                     <div className="space-y-8 mb-10">
                         {selectedSub.answers.map((ans: any, idx: number) => (
-                            <div key={idx} className="p-6 bg-muted/50 border border-border rounded-3xl">
-                                <p className="text-[9px] font-black uppercase text-muted-foreground mb-3">QUESTION {idx + 1} // {ans.type.toUpperCase()}</p>
-                                <p className="text-lg font-bold mb-4 italic tracking-tight leading-tight">{ans.question}</p>
-                                <div className="p-4 bg-foreground/20 rounded-2xl border border-border">
+                            <div key={idx} className="p-6 bg-white/5 border border-white/10 rounded-3xl">
+                                <p className="text-[9px] font-black uppercase text-white/40 mb-3">QUESTION {idx + 1} // {ans.type.toUpperCase()}</p>
+                                <p className="text-lg font-bold mb-4 italic tracking-tight leading-tight text-white">{ans.question}</p>
+                                <div className="p-4 bg-white/5 rounded-2xl border border-white/10">
                                     <p className="text-[9px] font-black uppercase text-emerald-400/40 mb-2">STUDENT RESPONSE:</p>
-                                    <p className="text-sm font-medium leading-relaxed">{ans.answer || "No response provided"}</p>
+                                    <p className="text-sm font-medium leading-relaxed text-white/80">{ans.answer || "No response provided"}</p>
                                 </div>
                             </div>
                         ))}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-5 md:p-8 bg-muted/50 border border-border rounded-2xl md:rounded-3xl">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 p-5 md:p-8 bg-white/5 border border-white/10 rounded-2xl md:rounded-3xl">
                         <div className="space-y-4">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Assign Final Grade (%)</label>
+                            <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Assign Final Grade (%)</label>
                             <input 
                                 type="number" 
                                 value={grade} 
                                 onChange={e => setGrade(parseInt(e.target.value))}
-                                className="w-full bg-card/80 border border-border rounded-2xl px-6 py-4 text-2xl font-black text-primary outline-none"
+                                className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-2xl font-black text-primary outline-none focus:border-primary/50 transition-all"
                             />
-                            <p className="text-[8px] font-black uppercase text-muted-foreground px-2">MCQ AUTOMATED BASE: {selectedSub.mcq_score}%</p>
+                            <p className="text-[8px] font-black uppercase text-white/30 px-2">MCQ AUTOMATED BASE: {selectedSub.mcq_score}%</p>
                         </div>
                         <div className="space-y-4">
-                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Moderator Feedback</label>
+                            <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Moderator Feedback</label>
                             <textarea 
                                 value={feedback} 
                                 onChange={e => setFeedback(e.target.value)}
-                                className="w-full bg-card/80 border border-border rounded-2xl px-6 py-4 text-sm font-bold outline-none h-32 resize-none"
+                                className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm font-bold outline-none h-32 resize-none text-white placeholder:text-white/30 focus:border-primary/50 transition-all"
                                 placeholder="Strategic guidance for the agent..."
                             />
                         </div>
-                        <HeroButton onClick={handleGrade} className="md:col-span-2 bg-emerald-500 text-black h-16 rounded-2xl font-black text-sm uppercase tracking-widest italic">
+                        <HeroButton onClick={handleGrade} className="md:col-span-2 bg-emerald-500 text-black h-16 rounded-2xl font-black text-sm uppercase tracking-widest italic hover:bg-emerald-400 transition-all shadow-lg shadow-emerald-500/20">
                             AUTHORIZE SYNCHRONIZATION
                         </HeroButton>
                     </div>
@@ -4198,7 +4282,26 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
   const fetchSubmissions = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // 1. Get groups assigned to this moderator
+      const { data: myGroups } = await supabase
+        .from("groups")
+        .select("id")
+        .eq("moderator_id", user?.id);
+
+      const groupIds = myGroups?.map((g: any) => g.id) || [];
+
+      // 2. Get students in those groups
+      let studentIds: string[] = [];
+      if (groupIds.length > 0) {
+        const { data: sgData } = await supabase
+          .from("student_groups")
+          .select("student_id")
+          .in("group_id", groupIds);
+        studentIds = sgData?.map((s: any) => s.student_id) || [];
+      }
+
+      // 3. Fetch submissions — filter by student group if moderator has groups
+      let query = supabase
         .from("lecture_task_submissions")
         .select(`
           id, student_id, lecture_id, image_url, file_url, status, feedback, grade, created_at, updated_at,
@@ -4209,6 +4312,11 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
         `)
         .order("created_at", { ascending: false });
 
+      if (groupIds.length > 0 && studentIds.length > 0) {
+        query = query.in("student_id", studentIds);
+      }
+
+      const { data, error } = await query;
       if (error) throw error;
       setSubmissions(data || []);
     } catch (err: any) {
@@ -4216,7 +4324,7 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [user?.id]);
 
   useEffect(() => { fetchSubmissions(); }, [fetchSubmissions]);
 
@@ -4395,38 +4503,38 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+            className="fixed inset-0 z-[150] bg-black/80 backdrop-blur-md flex items-center justify-center p-4"
             onClick={() => setSelectedSub(null)}
           >
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-card border border-border rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 md:p-8"
+              className="bg-[#141414] border border-white/10 rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 md:p-8 shadow-2xl shadow-black/50"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center justify-between mb-6">
-                <h3 className="font-black text-lg">{isAr ? "مراجعة المهمة" : "REVIEW ASSIGNMENT"}</h3>
-                <button onClick={() => setSelectedSub(null)} className="p-2 rounded-xl bg-muted hover:bg-muted/80">
+                <h3 className="font-black text-lg text-white">{isAr ? "مراجعة المهمة" : "REVIEW ASSIGNMENT"}</h3>
+                <button onClick={() => setSelectedSub(null)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="space-y-4 mb-6">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary font-black text-sm">
+                  <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center text-primary font-black text-sm">
                     {selectedSub.profiles?.username?.charAt(0)?.toUpperCase() || "?"}
                   </div>
                   <div>
-                    <p className="font-bold text-sm">{selectedSub.profiles?.username}</p>
-                    <p className="text-xs text-muted-foreground">{selectedSub.profiles?.phone_number} | {selectedSub.profiles?.email}</p>
+                    <p className="font-bold text-sm text-white">{selectedSub.profiles?.username}</p>
+                    <p className="text-xs text-white/40">{selectedSub.profiles?.phone_number} | {selectedSub.profiles?.email}</p>
                   </div>
                 </div>
-                <div className="text-xs text-muted-foreground space-y-1">
+                <div className="text-xs text-white/40 space-y-1">
                   <p>{isAr ? "الدرس" : "Lesson"}: {selectedSub.lecture_templates?.title}</p>
                   <p>{isAr ? "المستوى" : "Level"}: {selectedSub.lecture_templates?.level_templates?.title}</p>
                   {selectedSub.lecture_templates?.assignment_description && (
-                    <p className="mt-2 p-3 bg-muted rounded-xl">{selectedSub.lectures.assignment_description}</p>
+                    <p className="mt-2 p-3 bg-white/5 rounded-xl border border-white/10">{selectedSub.lectures.assignment_description}</p>
                   )}
                 </div>
               </div>
@@ -4435,15 +4543,15 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
               {selectedSub.image_url && (
                 <div className="mb-6">
                   {selectedSub.image_url.match(/\.(pdf|doc|docx)$/i) || selectedSub.image_url.includes("application/pdf") ? (
-                    <a href={selectedSub.image_url} target="_blank" rel="noopener" className="flex items-center gap-3 p-4 bg-muted rounded-2xl border border-border hover:bg-muted/80 transition-all">
+                    <a href={selectedSub.image_url} target="_blank" rel="noopener" className="flex items-center gap-3 p-4 bg-white/5 rounded-2xl border border-white/10 hover:bg-white/10 transition-all">
                       <FileText className="w-8 h-8 text-primary" />
                       <div>
-                        <p className="font-bold text-sm">{isAr ? "عرض الملف" : "View File"}</p>
-                        <p className="text-xs text-muted-foreground">{isAr ? "افتح في نافذة جديدة" : "Opens in new tab"}</p>
+                        <p className="font-bold text-sm text-white">{isAr ? "عرض الملف" : "View File"}</p>
+                        <p className="text-xs text-white/40">{isAr ? "افتح في نافذة جديدة" : "Opens in new tab"}</p>
                       </div>
                     </a>
                   ) : (
-                    <img src={selectedSub.image_url} alt="Submission" className="w-full max-h-[300px] object-contain rounded-2xl border border-border" />
+                    <img src={selectedSub.image_url} alt="Submission" className="w-full max-h-[300px] object-contain rounded-2xl border border-white/10 bg-black/30" />
                   )}
                 </div>
               )}
@@ -4451,18 +4559,18 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
               {/* Feedback */}
               <div className="space-y-4 mb-6">
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2 block">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">
                     {isAr ? "ملاحظات" : "FEEDBACK"}
                   </label>
                   <textarea
                     value={feedback}
                     onChange={(e) => setFeedback(e.target.value)}
-                    className="w-full bg-muted border border-border rounded-2xl px-4 py-3 text-sm outline-none focus:border-primary h-24 resize-none"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm outline-none focus:border-primary/50 transition-all h-24 resize-none text-white placeholder:text-white/30"
                     placeholder={isAr ? "اكتب ملاحظاتك..." : "Write your feedback..."}
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-2 block">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-2 block">
                     {isAr ? "الدرجة" : "GRADE"}
                   </label>
                   <input
@@ -4471,7 +4579,7 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
                     max="100"
                     value={grade}
                     onChange={(e) => setGrade(e.target.value ? parseInt(e.target.value) : "")}
-                    className="w-full bg-muted border border-border rounded-2xl px-4 py-3 text-sm outline-none focus:border-primary"
+                    className="w-full bg-white/5 border border-white/10 rounded-2xl px-4 py-3 text-sm outline-none focus:border-primary/50 transition-all text-white placeholder:text-white/30"
                     placeholder="0-100"
                   />
                 </div>
@@ -4482,14 +4590,14 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
                 <button
                   onClick={() => handleApprove(selectedSub)}
                   disabled={processing}
-                  className="py-3 rounded-2xl bg-green-500/10 border border-green-500/30 text-green-500 font-black text-xs uppercase tracking-widest hover:bg-green-500/20 transition-all disabled:opacity-50"
+                  className="py-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-black text-xs uppercase tracking-widest hover:bg-emerald-500/20 transition-all disabled:opacity-50"
                 >
                   {processing ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : (isAr ? "موافقة" : "APPROVE")}
                 </button>
                 <button
                   onClick={() => handleReject(selectedSub)}
                   disabled={processing}
-                  className="py-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-500 font-black text-xs uppercase tracking-widest hover:bg-red-500/20 transition-all disabled:opacity-50"
+                  className="py-3 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400 font-black text-xs uppercase tracking-widest hover:bg-red-500/20 transition-all disabled:opacity-50"
                 >
                   {processing ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : (isAr ? "رفض" : "REJECT")}
                 </button>

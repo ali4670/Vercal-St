@@ -155,9 +155,6 @@ export function GroupManager() {
       { student_id: studentId, group_id: groupId },
       { onConflict: "student_id,group_id" }
     );
-    if (!error) {
-      await supabase.from("profiles").update({ group_id: groupId }).eq("id", studentId);
-    }
     if (error) {
       toast.error(error.message);
     } else {
@@ -167,20 +164,24 @@ export function GroupManager() {
   };
 
   const removeStudent = async (studentId: string, groupId?: string) => {
+    let error;
     if (groupId) {
-      await supabase.from("student_groups").delete().eq("student_id", studentId).eq("group_id", groupId);
-      const { data: remaining } = await supabase.from("student_groups").select("group_id").eq("student_id", studentId);
-      if (!remaining || remaining.length === 0) {
+      const res = await supabase.from("student_groups").delete().eq("student_id", studentId).eq("group_id", groupId);
+      error = res.error;
+      const { data: profile } = await supabase.from("profiles").select("group_id").eq("id", studentId).single();
+      if (profile?.group_id === groupId) {
         await supabase.from("profiles").update({ group_id: null }).eq("id", studentId);
-      } else {
-        await supabase.from("profiles").update({ group_id: remaining[0].group_id }).eq("id", studentId);
       }
     } else {
-      await supabase.from("student_groups").delete().eq("student_id", studentId);
-      await supabase.from("profiles").update({ group_id: null }).eq("id", studentId);
+      const res = await supabase.from("student_groups").delete().eq("student_id", studentId);
+      error = res.error;
     }
-    toast.success(isAr ? "تم إزالة الطالب" : "Student removed");
-    fetchData();
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success(isAr ? "تم إزالة الطالب" : "Student removed");
+      fetchData();
+    }
   };
 
   const assignModerator = async (groupId: string, moderatorId: string | null) => {
@@ -205,10 +206,10 @@ export function GroupManager() {
   const getGroupStudents = (groupId: string) =>
     allStudents.filter((s) => s.group_ids?.includes(groupId));
 
-  const getUnassignedStudents = () => {
+  const getAddableStudents = (groupId: string) => {
     const searchLower = studentSearch.toLowerCase();
     return allStudents.filter((s) =>
-      (!s.group_ids || s.group_ids.length === 0) &&
+      !(s.group_ids?.includes(groupId)) &&
       (s.username?.toLowerCase().includes(searchLower) ||
         s.phone_number?.includes(studentSearch))
     );
@@ -478,14 +479,14 @@ export function GroupManager() {
                             />
                           </div>
                           <div className="max-h-48 overflow-y-auto space-y-1">
-                            {getUnassignedStudents().length === 0 ? (
+                            {getAddableStudents(group.id).length === 0 ? (
                               <p className="text-[9px] text-muted-foreground italic py-2 text-center">
                                 {studentSearch
                                   ? (isAr ? "لا نتائج" : "No results")
-                                  : (isAr ? "جميع الطلاب في مجموعة" : "All students are in a group")}
+                                  : (isAr ? "جميع الطلاب في هذه المجموعة" : "All students already in this group")}
                               </p>
                             ) : (
-                              getUnassignedStudents().map((student) => (
+                              getAddableStudents(group.id).map((student) => (
                                 <div
                                   key={student.id}
                                   className="flex items-center gap-2 p-2 bg-muted/30 border border-border rounded-lg hover:bg-muted/50 transition-all"
@@ -499,9 +500,20 @@ export function GroupManager() {
                                   </div>
                                   <div className="flex-1 min-w-0">
                                     <p className="text-[10px] font-bold truncate">{student.username}</p>
-                                    {student.phone_number && (
+                                    {student.group_ids && student.group_ids.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1 mt-0.5">
+                                        {student.group_ids.map((gid) => {
+                                          const gName = groups.find((g) => g.id === gid)?.name || gid.slice(0, 6);
+                                          return (
+                                            <span key={gid} className="text-[6px] px-1 py-0.5 rounded-full bg-muted text-muted-foreground font-bold">
+                                              {gName}
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    ) : student.phone_number ? (
                                       <p className="text-[8px] text-muted-foreground truncate">{student.phone_number}</p>
-                                    )}
+                                    ) : null}
                                   </div>
                                   <button
                                     onClick={() => assignStudent(student.id, group.id)}

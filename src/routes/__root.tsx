@@ -29,7 +29,7 @@ import { AuthProvider, useAuth } from "../hooks/use-auth";
 import { AuthModal } from "../components/AuthModal";
 import { ProfileEdit } from "../components/ProfileEdit";
 import { ScreenProtect } from "../components/ScreenProtect";
-import { SessionWatermark } from "../components/SessionWatermark";
+
 import { HeroButton } from "../funs/HeroButton";
 import { Component as Footer } from "../components/ui/footer-taped-design";
 
@@ -409,7 +409,6 @@ function ThemeContent() {
     <LanguageProvider>
       <AuthProvider>
         <ScreenProtect />
-        <SessionWatermark />
         <div className="min-h-screen bg-background text-foreground transition-colors duration-300 screen-protect-content">
           <InnerLayout />
           <main className="pt-14 md:pt-24 pb-20 md:pb-0 min-h-screen bg-background transition-colors duration-300">

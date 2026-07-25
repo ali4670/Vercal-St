@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "motion/react";
 import {
-  ArrowUpRight,
   Wallet,
   Globe,
   LogOut,
@@ -19,6 +18,7 @@ import { renderCanvas } from "@/components/ui/canvas";
 import { cn } from "@/lib/utils";
 import { Suspense, lazy } from "react";
 import { Link } from "@tanstack/react-router";
+import { ImageGallery } from "@/components/ui/carousel-circular-image-gallery";
 
 const SplineScene = lazy(() =>
   import("@/components/ui/splite").then((mod) => ({
@@ -53,34 +53,6 @@ const ArrowGreenRight = () => (
   >
     <path d="M90,10 C 80,60 60,80 40,60 C 20,40 40,20 60,30 C 80,40 70,70 50,80" />
     <path d="M65,75 L50,80 L55,65" />
-  </svg>
-);
-
-const ArrowBlack1 = () => (
-  <svg
-    viewBox="0 0 100 100"
-    className="w-full h-full text-foreground stroke-current overflow-visible"
-    fill="none"
-    strokeWidth="5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M20,80 Q 40,20 80,40" />
-    <path d="M60,20 L80,40 L50,60" />
-  </svg>
-);
-
-const ArrowBlack2 = () => (
-  <svg
-    viewBox="0 0 100 100"
-    className="w-full h-full text-foreground stroke-current overflow-visible"
-    fill="none"
-    strokeWidth="5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M20,80 Q 40,20 80,40" />
-    <path d="M60,20 L80,40 L50,60" />
   </svg>
 );
 
@@ -171,7 +143,7 @@ export const Component = () => {
 
         {/* Brand & Menu Items */}
         <div className="hidden md:flex items-center gap-8">
-          <span className="text-foreground font-black uppercase tracking-widest text-lg">ROBOTICS<span className="text-primary">-</span>CLUB<span className="text-primary">.</span></span>
+          <span className="text-foreground font-black uppercase tracking-widest text-lg">ST<span className="text-primary">-</span>COMPANY<span className="text-primary">.</span></span>
           <button
             onClick={() => document.getElementById("arena-section")?.scrollIntoView({ behavior: "smooth" })}
             className="text-muted-foreground hover:text-foreground font-bold uppercase tracking-widest text-xs transition-colors"
@@ -210,7 +182,7 @@ export const Component = () => {
         {/* Mobile Menu */}
         {isMobileMenuOpen && (
           <div className="absolute top-20 left-0 w-full bg-background/95 p-6 flex flex-col items-center gap-4 md:hidden border-b border-border z-50 backdrop-blur-xl">
-            <span className="text-foreground font-black uppercase tracking-widest text-sm">ROBOTICS<span className="text-primary">-</span>CLUB</span>
+            <span className="text-foreground font-black uppercase tracking-widest text-sm">ST<span className="text-primary">-</span>COMPANY</span>
             <button
               onClick={() => {
                 document.getElementById("arena-section")?.scrollIntoView({ behavior: "smooth" });
@@ -249,7 +221,7 @@ export const Component = () => {
               </h1>
             </div>
 
-            {/* ROBOTICS */}
+            {/* ST */}
             <div className="w-full flex justify-center relative z-20">
               <h1
                 className="text-[clamp(5rem,15vw,220px)] font-black leading-[0.85] tracking-tighter text-foreground m-0 p-0 uppercase"
@@ -259,11 +231,11 @@ export const Component = () => {
                     "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1), 4px 4px 0 rgba(0,0,0,0.1), 5px 5px 0 rgba(0,0,0,0.1), 6px 6px 0 rgba(0,0,0,0.1), 7px 7px 0 rgba(0,0,0,0.1), 8px 8px 0 rgba(0,0,0,0.1), 9px 9px 0 rgba(0,0,0,0.1), 10px 10px 0 rgba(0,0,0,0.1), 11px 11px 0 rgba(0,0,0,0.1), 12px 12px 0 rgba(0,0,0,0.1), 13px 13px 0 rgba(0,0,0,0.1), 14px 14px 0 rgba(0,0,0,0.1)",
                 }}
               >
-                ROBOTICS
+                ST
               </h1>
             </div>
 
-            {/* CLUB */}
+            {/* COMPANY */}
             <div className="w-full flex justify-start pl-[15%] md:pl-[30%] relative z-10">
               <h1
                 className="text-[clamp(4.5rem,12vw,160px)] font-black leading-[0.85] tracking-tighter text-foreground m-0 p-0 uppercase"
@@ -273,7 +245,7 @@ export const Component = () => {
                     "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1), 4px 4px 0 rgba(0,0,0,0.1), 5px 5px 0 rgba(0,0,0,0.1), 6px 6px 0 rgba(0,0,0,0.1), 7px 7px 0 rgba(0,0,0,0.1), 8px 8px 0 rgba(0,0,0,0.1), 9px 9px 0 rgba(0,0,0,0.1), 10px 10px 0 rgba(0,0,0,0.1), 11px 11px 0 rgba(0,0,0,0.1), 12px 12px 0 rgba(0,0,0,0.1), 13px 13px 0 rgba(0,0,0,0.1), 14px 14px 0 rgba(0,0,0,0.1)",
                 }}
               >
-                {isAr ? "نادي" : "CLUB"}
+                {isAr ? "شراكة" : "COMPANY"}
               </h1>
             </div>
           </div>
@@ -319,109 +291,9 @@ export const Component = () => {
         </div>
       </main>
 
-      {/* Bottom Features Section */}
-      <section className="hidden md:block bg-card text-card-foreground rounded-t-[2.5rem] md:rounded-t-[3.5rem] px-6 py-12 md:px-10 md:py-16 relative z-20 shadow-[0_-20px_50px_rgba(0,0,0,0.1)] mt-auto w-full border-t border-border">
-        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-8">
-          {/* Card 1 */}
-          <div className="bg-muted rounded-[2rem] p-8 flex flex-col items-center text-center relative h-64 border border-border">
-            <h3 className="text-xl md:text-2xl uppercase leading-tight mb-2 font-black">
-              {isAr ? "دورات الروبوتات" : "ROBOTICS COURSES"}
-            </h3>
-            <p className="text-[10px] md:text-xs text-muted-foreground font-bold mb-auto">
-              {isAr
-                ? "للمهندسين الصغار (أعمار 7-13)"
-                : "For Junior Engineers (Ages 7-13)"}
-            </p>
-
-            {/* Pill Graphic */}
-            <div className="relative w-full flex justify-center mt-6">
-              <div className="flex items-center bg-primary rounded-2xl p-2 pr-16 text-primary-foreground shadow-lg relative z-10">
-                <div className="w-8 h-8 bg-muted rounded-full mr-3 border border-border overflow-hidden flex-shrink-0">
-                  <img
-                    src="https://images.unsplash.com/photo-1599566150163-29194dcaad36?auto=format&fit=crop&q=80&w=200&h=200"
-                    alt="Avatar"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div className={`text-left ${isAr ? "text-right" : ""}`}>
-                  <p className="text-[10px] font-bold leading-none">
-                    {isAr ? "سجل الآن" : "ENROLL NOW"}
-                  </p>
-                  <p className="text-[8px] text-primary-foreground/70 leading-none mt-1">
-                    2026 Season
-                  </p>
-                </div>
-              </div>
-               <div className="absolute right-2 top-1/2 transform -translate-y-1/2 bg-primary text-primary-foreground font-black text-[10px] px-3 py-2 rounded-xl z-20 shadow-md">
-                 {isAr ? "خصم 20%" : "20% OFF"}
-               </div>
-            </div>
-
-            {/* Arrow pointing to next card */}
-            <div className="hidden md:block absolute -right-12 bottom-8 w-16 h-16 z-30">
-              <ArrowBlack1 />
-            </div>
-          </div>
-
-          {/* Card 2 */}
-          <div className="bg-muted rounded-[2rem] p-8 flex flex-col items-center text-center relative h-64 border border-border">
-            <h3 className="text-xl md:text-2xl uppercase leading-tight mb-2 font-black">
-              {isAr ? "مسابقات عالمية" : "GLOBAL CHALLENGE"}
-            </h3>
-            <p className="text-[10px] md:text-xs text-muted-foreground font-bold mb-auto">
-              {isAr
-                ? "نافس فرقاً من جميع أنحاء العالم"
-                : "Compete with teams worldwide"}
-            </p>
-
-            {/* Pill Graphic */}
-            <div className="relative w-full flex justify-center mt-6">
-              <div className="flex items-center bg-primary rounded-full p-1.5 text-primary-foreground shadow-lg">
-                <div className="bg-primary-foreground/20 text-primary-foreground font-bold text-sm px-4 py-2 rounded-full mr-2">
-                  50+
-                </div>
-                <div className="font-bold text-xs px-4 uppercase">
-                  {isAr ? "دولة" : "Countries"}
-                </div>
-              </div>
-
-              {/* Small floating green pill */}
-              <div className="absolute -bottom-6 right-1/3 bg-primary rounded-full p-2.5 shadow-lg transform rotate-12 z-20">
-                <ArrowUpRight className="w-4 h-4 text-primary-foreground" strokeWidth={3} />
-              </div>
-            </div>
-
-            {/* Arrow pointing to next card */}
-            <div className="hidden md:block absolute -right-12 bottom-8 w-16 h-16 z-30">
-              <ArrowBlack2 />
-            </div>
-          </div>
-
-          {/* Card 3 */}
-          <div className="bg-muted rounded-[2rem] p-8 flex flex-col items-center text-center relative h-64 border border-border">
-            <h3 className="text-xl md:text-2xl uppercase leading-tight mb-2 font-black">
-              {isAr ? "يوم الصناعة الحر" : "FREE BUILD DAYS"}
-            </h3>
-            <p className="text-[10px] md:text-xs text-muted-foreground font-bold mb-auto">
-              {isAr
-                ? "تعال واصنع روبوتك الخاص مجاناً"
-                : "Come and make your robot for free"}
-            </p>
-
-            {/* Pill Graphic */}
-            <div className="flex flex-col items-center bg-primary rounded-[2rem] px-6 py-4 text-primary-foreground shadow-lg mt-6 relative w-full max-w-[200px]">
-              <p className="text-[9px] font-black uppercase tracking-wider mb-1">
-                {isAr ? "السبت القادم" : "NEXT SATURDAY"}
-              </p>
-              <p className="text-xl font-black">
-                {isAr ? "دخول مجاني" : "FREE ENTRY"}
-              </p>
-
-              {/* Speech bubble tail */}
-              <div className="absolute -bottom-2 left-8 w-5 h-5 bg-primary transform rotate-45"></div>
-            </div>
-          </div>
-        </div>
+      {/* Card Stack Gallery Section */}
+      <section className="hidden md:block relative z-20 mt-auto w-full">
+        <ImageGallery />
       </section>
     </div>
   );

@@ -707,14 +707,13 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS email TEXT;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS age INTEGER;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS group_name TEXT;
 
-ALTER TABLE lectures ADD COLUMN IF NOT EXISTS assignment_required BOOLEAN DEFAULT false;
-ALTER TABLE lectures ADD COLUMN IF NOT EXISTS assignment_description TEXT;
+ALTER TABLE lecture_templates ADD COLUMN IF NOT EXISTS assignment_description TEXT;
 
 -- Lecture Task Submissions: Student assignment submissions
 CREATE TABLE IF NOT EXISTS lecture_task_submissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     student_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
-    lecture_id UUID,
+    lecture_id UUID REFERENCES lecture_templates(id) ON DELETE CASCADE,
     image_url TEXT,
     file_url TEXT,
     status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
@@ -744,6 +743,18 @@ ALTER TABLE lecture_task_submissions ADD COLUMN IF NOT EXISTS feedback TEXT;
 ALTER TABLE lecture_task_submissions ADD COLUMN IF NOT EXISTS file_url TEXT;
 ALTER TABLE lecture_task_submissions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now());
 ALTER TABLE lecture_task_submissions ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now());
+
+-- Remove orphaned submissions whose lecture_id no longer exists in lecture_templates
+DELETE FROM lecture_task_submissions lts
+WHERE NOT EXISTS (
+    SELECT 1 FROM lecture_templates lt WHERE lt.id = lts.lecture_id
+);
+
+-- Re-add FK: lecture_task_submissions.lecture_id -> lecture_templates(id)
+-- (dropped above during cleanup; CREATE TABLE IF NOT EXISTS won't re-add it)
+ALTER TABLE lecture_task_submissions
+  ADD CONSTRAINT lecture_task_submissions_lecture_id_fkey
+  FOREIGN KEY (lecture_id) REFERENCES lecture_templates(id) ON DELETE CASCADE;
 
 -- ============================================
 -- ASSIGNMENT SUBMISSION & LESSON ACCESS CONTROL
@@ -2686,17 +2697,17 @@ CREATE POLICY "Moderators manage groups" ON groups FOR ALL USING (is_admin());
 DROP POLICY IF EXISTS "Moderators view assigned groups" ON groups;
 CREATE POLICY "Moderators view assigned groups" ON groups FOR SELECT USING (is_moderator() AND (moderator_id = auth.uid() OR is_admin()));
 DROP POLICY IF EXISTS "Users view own group" ON groups;
-CREATE POLICY "Users view own group" ON groups FOR SELECT USING (EXISTS (SELECT 1 FROM profiles WHERE profiles.id = auth.uid() AND profiles.group_id = groups.id) OR is_moderator());
+CREATE POLICY "Users view own group" ON groups FOR SELECT USING (is_moderator() OR EXISTS (SELECT 1 FROM student_groups WHERE student_groups.student_id = auth.uid() AND student_groups.group_id = groups.id));
 ALTER TABLE level_templates ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Moderators manage level templates" ON level_templates;
 CREATE POLICY "Moderators manage level templates" ON level_templates FOR ALL USING (is_moderator());
 DROP POLICY IF EXISTS "Students view assigned templates" ON level_templates;
-CREATE POLICY "Students view assigned templates" ON level_templates FOR SELECT USING (is_moderator() OR (is_published = true AND EXISTS (SELECT 1 FROM group_level_assignments gla WHERE gla.level_template_id = level_templates.id AND is_member_of_group(gla.group_id))));
+CREATE POLICY "Students view assigned templates" ON level_templates FOR SELECT USING (is_moderator() OR (is_published = true));
 ALTER TABLE lecture_templates ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Moderators manage lecture templates" ON lecture_templates;
 CREATE POLICY "Moderators manage lecture templates" ON lecture_templates FOR ALL USING (is_moderator());
 DROP POLICY IF EXISTS "Students view assigned lectures" ON lecture_templates;
-CREATE POLICY "Students view assigned lectures" ON lecture_templates FOR SELECT USING (is_moderator() OR EXISTS (SELECT 1 FROM level_templates lt JOIN group_level_assignments gla ON gla.level_template_id = lt.id WHERE lt.id = lecture_templates.level_template_id AND lt.is_published = true AND is_member_of_group(gla.group_id)));
+CREATE POLICY "Students view assigned lectures" ON lecture_templates FOR SELECT USING (is_moderator() OR EXISTS (SELECT 1 FROM level_templates lt WHERE lt.id = lecture_templates.level_template_id AND lt.is_published = true));
 ALTER TABLE group_level_assignments ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Moderators manage group assignments" ON group_level_assignments;
 CREATE POLICY "Moderators manage group assignments" ON group_level_assignments FOR ALL USING (is_admin());
@@ -2708,7 +2719,7 @@ ALTER TABLE exam_templates ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Moderators manage exam templates" ON exam_templates;
 CREATE POLICY "Moderators manage exam templates" ON exam_templates FOR ALL USING (is_moderator());
 DROP POLICY IF EXISTS "Students view assigned exams" ON exam_templates;
-CREATE POLICY "Students view assigned exams" ON exam_templates FOR SELECT USING (is_moderator() OR EXISTS (SELECT 1 FROM level_templates lt JOIN group_level_assignments gla ON gla.level_template_id = lt.id WHERE lt.id = exam_templates.level_template_id AND lt.is_published = true AND is_member_of_group(gla.group_id)));
+CREATE POLICY "Students view assigned exams" ON exam_templates FOR SELECT USING (is_moderator() OR EXISTS (SELECT 1 FROM level_templates lt WHERE lt.id = exam_templates.level_template_id AND lt.is_published = true));
 ALTER PUBLICATION supabase_realtime ADD TABLE content_library;
 ALTER PUBLICATION supabase_realtime ADD TABLE groups;
 ALTER PUBLICATION supabase_realtime ADD TABLE group_level_assignments;

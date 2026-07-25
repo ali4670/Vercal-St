@@ -202,6 +202,13 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    font-family: "Outfit", system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  code, pre, .tabular-nums, [data-mono] {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
   }
 
   [lang="ar"],
