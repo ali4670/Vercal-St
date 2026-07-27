@@ -1,66 +1,5 @@
 import { useEffect, useRef } from "react";
 
-function poisonCanvasPrototype() {
-  if (typeof HTMLCanvasElement === "undefined") return;
-
-  const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
-  HTMLCanvasElement.prototype.toDataURL = function (...args: any[]) {
-    const ctx = this.getContext("2d");
-    if (ctx) {
-      const w = this.width;
-      const h = this.height;
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = "#fff";
-      ctx.font = `${Math.max(16, w / 20)}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("PROTECTED CONTENT", w / 2, h / 2);
-    }
-    return origToDataURL.apply(this, args as any);
-  };
-
-  const origToBlob = HTMLCanvasElement.prototype.toBlob;
-  HTMLCanvasElement.prototype.toBlob = function (callback: any, ...args: any[]) {
-    const ctx = this.getContext("2d");
-    if (ctx) {
-      const w = this.width;
-      const h = this.height;
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, w, h);
-      ctx.fillStyle = "#fff";
-      ctx.font = `${Math.max(16, w / 20)}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("PROTECTED CONTENT", w / 2, h / 2);
-    }
-    return origToBlob.call(this, callback, ...args);
-  };
-
-  const origGetContext = HTMLCanvasElement.prototype.getContext;
-  HTMLCanvasElement.prototype.getContext = function (
-    type: string,
-    ...rest: any[]
-  ) {
-    const ctx = origGetContext.call(this, type, ...rest);
-    if (ctx && (type === "2d" || type === "webgl" || type === "webgl2" || type === "experimental-webgl")) {
-      const origGetImageData = (ctx as any).getImageData;
-      if (origGetImageData) {
-        (ctx as any).getImageData = function (...imgArgs: any[]) {
-          const data = origGetImageData.apply(this, imgArgs);
-          for (let i = 0; i < data.data.length; i += 4) {
-            data.data[i] = 0;
-            data.data[i + 1] = 0;
-            data.data[i + 2] = 0;
-            data.data[i + 3] = 255;
-          }
-          return data;
-        };
-      }
-    }
-    return ctx;
-  };
-}
 
 function blockScreenCaptureAPI() {
   if (typeof navigator === "undefined" || !navigator.mediaDevices) return;
@@ -142,7 +81,6 @@ export function useScreenProtect() {
   const cleanupRefs = useRef<(() => void)[]>([]);
 
   useEffect(() => {
-    poisonCanvasPrototype();
     blockScreenCaptureAPI();
     const devtoolsCleanup = blockDevToolsDetection();
 
