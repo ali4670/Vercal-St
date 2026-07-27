@@ -16,11 +16,16 @@ import {
   Phone,
   Timer,
   Coffee,
+  Trash2,
+  AlertTriangle,
+  ImagePlus,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { useAuth } from "../hooks/use-auth";
 import { useNavigate } from "@tanstack/react-router";
+import { ImageCropper } from "./ImageCropper";
+import { DeleteMyAccountComp } from "./delete-my-account-comp";
 
 interface ProfileEditProps {
   isOpen: boolean;
@@ -70,6 +75,9 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({
   const [breakDuration, setBreakDuration] = useState(5);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [cropperOpen, setCropperOpen] = useState(false);
+  const [cropImageSrc, setCropImageSrc] = useState("");
+  const [deleteAccountOpen, setDeleteAccountOpen] = useState(false);
 
   useEffect(() => {
     if ((isOpen || fullPage) && currentProfile) {
@@ -83,25 +91,38 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({
     }
   }, [isOpen, fullPage, currentProfile]);
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!event.target.files || event.target.files.length === 0) return;
+
+    const file = event.target.files[0];
+
+    if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
+      toast.error(isAr ? "نوع الملف غير مدعوم" : "Unsupported file type. Use JPG, PNG, WebP, or GIF.");
+      return;
+    }
+    if (file.size > MAX_AVATAR_SIZE) {
+      toast.error(isAr ? "الملف كبير جداً" : "File too large. Maximum 5MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setCropImageSrc(e.target?.result as string);
+      setCropperOpen(true);
+    };
+    reader.readAsDataURL(file);
+
+    event.target.value = "";
+  };
+
+  const handleCropComplete = async (blob: Blob) => {
     try {
       setUploading(true);
-      if (!event.target.files || event.target.files.length === 0) return;
+      setCropperOpen(false);
+
       if (!user) throw new Error("Authentication required");
 
-      const file = event.target.files[0];
-
-      if (!ALLOWED_AVATAR_TYPES.includes(file.type)) {
-        toast.error(isAr ? "نوع الملف غير مدعوم" : "Unsupported file type. Use JPG, PNG, WebP, or GIF.");
-        return;
-      }
-      if (file.size > MAX_AVATAR_SIZE) {
-        toast.error(isAr ? "الملف كبير جداً" : "File too large. Maximum 5MB.");
-        return;
-      }
-
-      const safeName = sanitizeFilename(file.name);
-      const fileExt = safeName.split(".").pop() || "jpg";
+      const fileExt = "jpg";
       const filePath = `${user.id}/${user.id}-${Math.random().toString(36).slice(2, 8)}.${fileExt}`;
 
       // Delete old avatar if exists
@@ -115,7 +136,7 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({
 
       const { error: uploadError } = await supabase.storage
         .from("avatars")
-        .upload(filePath, file);
+        .upload(filePath, blob, { contentType: "image/jpeg" });
       if (uploadError) throw uploadError;
 
       const { data: { publicUrl } } = supabase.storage.from("avatars").getPublicUrl(filePath);
@@ -194,6 +215,9 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({
     upload: isAr ? "تغيير الصورة" : "CHANGE AVATAR",
     back: isAr ? "العودة" : "BACK",
     mins: isAr ? "دقيقة" : "min",
+    dangerZone: isAr ? "منطقة الخطر" : "DANGER ZONE",
+    deleteAccount: isAr ? "حذف الحساب" : "DELETE ACCOUNT",
+    deleteAccountDesc: isAr ? "حذف حسابك وجميع بياناتك نهائياً" : "Permanently delete your account and all data",
   };
 
   const content = (
@@ -251,7 +275,7 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({
                   <Camera className="w-3.5 h-3.5" />
                 </div>
               </div>
-              <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/jpeg,image/png,image/webp,image/gif" />
+              <input type="file" ref={fileInputRef} onChange={handleFileSelect} className="hidden" accept="image/jpeg,image/png,image/webp,image/gif" />
 
               <div className="flex-1 text-center sm:text-left">
                 <p className="font-black text-lg uppercase tracking-tight mb-1">{currentProfile?.username || "Agent"}</p>
@@ -380,6 +404,27 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({
             </div>
           </div>
 
+          {/* Danger Zone */}
+          {!targetProfile && (
+            <div className="bg-card border-2 border-destructive/20 rounded-3xl p-8">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 rounded-xl bg-destructive/10 border border-destructive/20">
+                  <AlertTriangle className="w-4 h-4 text-destructive" />
+                </div>
+                <h2 className="font-black uppercase tracking-widest text-sm text-destructive">{t.dangerZone}</h2>
+              </div>
+              <p className="text-muted-foreground text-xs mb-5">{t.deleteAccountDesc}</p>
+              <button
+                type="button"
+                onClick={() => setDeleteAccountOpen(true)}
+                className="flex items-center gap-3 px-5 py-3.5 rounded-2xl border-2 border-destructive/30 bg-destructive/5 text-destructive text-xs font-black uppercase tracking-widest hover:bg-destructive/10 hover:border-destructive/50 transition-all"
+              >
+                <Trash2 className="w-4 h-4" />
+                {t.deleteAccount}
+              </button>
+            </div>
+          )}
+
           {/* Save Button */}
           <button
             type="submit"
@@ -395,6 +440,23 @@ export const ProfileEdit: React.FC<ProfileEditProps> = ({
           </button>
         </form>
       </div>
+
+      {/* Image Cropper Modal */}
+      <ImageCropper
+        isOpen={cropperOpen}
+        onClose={() => {
+          setCropperOpen(false);
+          setCropImageSrc("");
+        }}
+        onCrop={handleCropComplete}
+        imageSrc={cropImageSrc}
+      />
+
+      {/* Delete Account Modal */}
+      <DeleteMyAccountComp
+        isOpen={deleteAccountOpen}
+        onClose={() => setDeleteAccountOpen(false)}
+      />
     </div>
   );
 
