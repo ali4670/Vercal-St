@@ -30,6 +30,7 @@ interface Level {
   level_order: number;
   image_url?: string;
   drip_interval_days: number;
+  force_all_live?: boolean;
 }
 
 interface Lecture {
@@ -189,6 +190,9 @@ function LevelsPage() {
 
   const isLectureUnlocked = (lecture: Lecture) => {
     if (isAdmin || isModerator) return true;
+
+    const level = levels.find((l) => l.id === lecture.level_id);
+    if (level?.force_all_live) return true;
 
     const hasAccess = access.some((a) => a.level_id === lecture.level_id);
 
