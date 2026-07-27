@@ -1344,13 +1344,19 @@ function LecturePage() {
                     ref={taskFileInputRef}
                     onChange={handleTaskImageUpload}
                     className="hidden"
-                    accept="image/jpeg,image/png,image/webp,.pdf,.doc,.docx"
+                    accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime"
                   />
 
                   {taskImageUrl ? (
                     <div className="space-y-4">
                       <div className="relative group">
-                        {taskImageUrl.match(/\.(pdf|doc|docx)$/i) || taskImageUrl.includes("application/pdf") ? (
+                        {taskImageUrl.match(/\.(mp4|webm|mov|ogg)$/i) || taskImageUrl.includes("video/") ? (
+                          <video
+                            src={taskImageUrl}
+                            controls
+                            className="w-full max-h-[300px] rounded-2xl border border-border"
+                          />
+                        ) : taskImageUrl.match(/\.(pdf|doc|docx)$/i) || taskImageUrl.includes("application/pdf") ? (
                           <div className="flex items-center gap-4 p-6 bg-muted rounded-2xl border border-border">
                             <FileText className="w-10 h-10 text-primary" />
                             <div>
@@ -1390,14 +1396,17 @@ function LecturePage() {
                       {taskUploading ? (
                         <Loader2 className="w-8 h-8 animate-spin text-primary" />
                       ) : (
-                        <Camera className="w-8 h-8 opacity-30" />
+                        <div className="w-8 h-8 opacity-30 flex items-center justify-center">
+                          <Camera className="w-5 h-5" />
+                          <Video className="w-4 h-4 -ml-1" />
+                        </div>
                       )}
                       <div className="text-center">
                         <p className="text-[10px] font-black uppercase tracking-widest">
                           {isAr ? "ارفع المهمة" : "UPLOAD ASSIGNMENT"}
                         </p>
                         <p className="text-[9px] text-muted-foreground mt-1">
-                          {isAr ? "صورة أو PDF أو Word — حد أقصى 10MB" : "Image, PDF, or Word — max 10MB"}
+                          {isAr ? "صورة أو فيديو — حد أقصى 50MB" : "Photo or Video — max 50MB"}
                         </p>
                       </div>
                     </button>

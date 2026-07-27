@@ -63,9 +63,12 @@ export const UPLOAD_CONFIGS = {
     label: "File",
   },
   taskSubmission: {
-    accept: ["image/jpeg", "image/png", "image/webp"],
-    maxSize: 10 * 1024 * 1024, // 10MB
-    label: "Image",
+    accept: [
+      "image/jpeg", "image/png", "image/webp",
+      "video/mp4", "video/webm", "video/quicktime",
+    ],
+    maxSize: 50 * 1024 * 1024, // 50MB
+    label: "Photo or Video",
   },
 } as const;
 

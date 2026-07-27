@@ -329,34 +329,26 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Check if student has access to a level (Manual + Sequential Progression)
 CREATE OR REPLACE FUNCTION can_student_access_level(u_id UUID, target_level_id UUID) RETURNS BOOLEAN AS $$
-    DECLARE prev_level_id UUID; current_level_order INTEGER; lectures_count INTEGER; completed_count INTEGER; has_manual BOOLEAN;
+    DECLARE prev_level_id UUID; current_level_order INTEGER; lectures_count INTEGER; completed_count INTEGER;
     BEGIN
       IF EXISTS (SELECT 1 FROM level_access WHERE user_id = u_id AND level_id = target_level_id) THEN
         RETURN TRUE;
       END IF;
 
-      SELECT EXISTS (SELECT 1 FROM level_access WHERE user_id = u_id) INTO has_manual;
-      
       SELECT level_order INTO current_level_order FROM level_templates WHERE id = target_level_id;
-      
-      IF current_level_order = 1 THEN 
-        IF has_manual THEN
-          RETURN FALSE;
-        ELSE
-          RETURN TRUE;
-        END IF;
-      END IF;
 
-      IF has_manual THEN
-        RETURN FALSE;
+      IF current_level_order IS NULL THEN RETURN FALSE; END IF;
+
+      IF current_level_order = 1 THEN
+        RETURN TRUE;
       END IF;
 
       SELECT id INTO prev_level_id FROM level_templates WHERE level_order < current_level_order ORDER BY level_order DESC LIMIT 1;
       IF prev_level_id IS NULL THEN RETURN TRUE; END IF;
-      
+
       SELECT COUNT(*) INTO lectures_count FROM lecture_templates WHERE level_template_id = prev_level_id AND is_live IS NOT FALSE;
       SELECT COUNT(*) INTO completed_count FROM student_progress JOIN lecture_templates ON student_progress.lecture_id = lecture_templates.id WHERE student_progress.student_id = u_id AND lecture_templates.level_template_id = prev_level_id;
-      
+
       RETURN completed_count >= lectures_count;
     END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -387,13 +379,13 @@ BEGIN
     WHERE user_id = auth.uid() AND level_id = v_level_template_id;
 
     IF v_level_access_granted_at IS NULL THEN
-        v_level_access_granted_at := NOW();
+        v_drip_interval := 0;
+    ELSE
+        SELECT drip_interval_days INTO v_drip_interval FROM level_templates WHERE id = v_level_template_id;
+        v_drip_interval := COALESCE(v_drip_interval, 0);
     END IF;
 
-    SELECT drip_interval_days INTO v_drip_interval FROM level_templates WHERE id = v_level_template_id;
-    v_drip_interval := COALESCE(v_drip_interval, 0);
-
-    IF (v_slot_number - 1) * v_drip_interval > EXTRACT(DAY FROM (NOW() - v_level_access_granted_at)) THEN
+    IF v_drip_interval > 0 AND (v_slot_number - 1) * v_drip_interval > EXTRACT(DAY FROM (NOW() - v_level_access_granted_at)) THEN
         RETURN FALSE;
     END IF;
 
