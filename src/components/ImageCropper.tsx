@@ -116,24 +116,38 @@ export const ImageCropper: React.FC<ImageCropperProps> = ({
     const img = imgRef.current;
     if (!canvas || !img) return;
 
-    canvas.width = CROP_SIZE * 2;
-    canvas.height = CROP_SIZE * 2;
+    const size = CROP_SIZE * 2;
+    canvas.width = size;
+    canvas.height = size;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, size, size);
 
     const dim = getScaledDimensions();
-    const sx = (img.naturalWidth / dim.w) * (dim.w / 2 - CROP_SIZE + offset.x);
-    const sy = (img.naturalHeight / dim.h) * (dim.h / 2 - CROP_SIZE + offset.y);
-    const sw = (img.naturalWidth / dim.w) * CROP_SIZE;
-    const sh = (img.naturalHeight / dim.h) * CROP_SIZE;
+    const displayW = dim.w / 2;
+    const displayH = dim.h / 2;
+    const viewportSize = CROP_SIZE / 2;
+
+    const imgDisplayLeft = viewportSize / 2 + offset.x / 2 - displayW / 2;
+    const imgDisplayTop = viewportSize / 2 + offset.y / 2 - displayH / 2;
+
+    const viewCenterInImgX = viewportSize / 2 - imgDisplayLeft;
+    const viewCenterInImgY = viewportSize / 2 - imgDisplayTop;
+
+    const scaleX = img.naturalWidth / displayW;
+    const scaleY = img.naturalHeight / displayH;
+
+    const srcCX = viewCenterInImgX * scaleX;
+    const srcCY = viewCenterInImgY * scaleY;
+    const srcRX = (viewportSize / 2) * scaleX;
+    const srcRY = (viewportSize / 2) * scaleY;
 
     ctx.beginPath();
-    ctx.arc(CROP_SIZE, CROP_SIZE, CROP_SIZE, 0, Math.PI * 2);
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
     ctx.clip();
 
-    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, CROP_SIZE * 2, CROP_SIZE * 2);
+    ctx.drawImage(img, srcCX - srcRX, srcCY - srcRY, srcRX * 2, srcRY * 2, 0, 0, size, size);
 
     canvas.toBlob(
       (blob) => {
