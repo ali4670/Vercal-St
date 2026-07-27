@@ -2278,7 +2278,7 @@ function CourseBuilder({ levelId, onBack }: { levelId: string | null; onBack: ()
   const [levelOrder, setLevelOrder] = useState<number>(1);
   const [isPublished, setIsPublished] = useState(true);
   const [levelImage, setLevelImage] = useState<string | null>(null);
-  const [dripInterval, setDripInterval] = useState<number>(7);
+  const [dripInterval, setDripInterval] = useState<number>(0);
 
   // Lectures State
   const [lectures, setLectures] = useState<LectureInput[]>([]);
@@ -2331,7 +2331,7 @@ function CourseBuilder({ levelId, onBack }: { levelId: string | null; onBack: ()
       setLevelOrder(level.level_order);
       setIsPublished(level.is_published);
       setLevelImage(level.image_url);
-      setDripInterval(level.drip_interval_days || 7);
+      setDripInterval(level.drip_interval_days || 0);
 
       const { data: lects } = await supabase
         .from("lecture_templates")
@@ -2579,7 +2579,7 @@ function CourseBuilder({ levelId, onBack }: { levelId: string | null; onBack: ()
           is_live: l.is_live !== false,
           content_blocks: l.content_blocks || [],
           is_big_exam: !!l.is_big_exam,
-          drip_days: l.drip_days || 7,
+          drip_days: l.drip_days || 0,
           quiz_data: l.quiz_data || []
         }));
 
@@ -2983,7 +2983,7 @@ function CourseBuilder({ levelId, onBack }: { levelId: string | null; onBack: ()
                       value={dripInterval}
                       onChange={(e) => setDripInterval(parseInt(e.target.value))}
                       className="w-full bg-card/80 border border-border rounded-xl md:rounded-2xl px-4 md:px-8 py-3 md:py-5 text-sm md:text-lg font-bold outline-none focus:border-lime-500/50 transition-all"
-                      placeholder="e.g. 7"
+                      placeholder="0 = immediate access"
                     />
                     <p className="text-[8px] text-muted-foreground uppercase font-black px-2">
                         Controls how many days between each module release. 
@@ -3069,7 +3069,7 @@ function CourseBuilder({ levelId, onBack }: { levelId: string | null; onBack: ()
                         </label>
                         <input
                           type="number"
-                          value={lectures[selectedLectureIdx].drip_days || 7}
+                          value={lectures[selectedLectureIdx].drip_days || 0}
                           onChange={(e) => {
                             const newLects = [...lectures];
                             newLects[selectedLectureIdx].drip_days = parseInt(e.target.value);

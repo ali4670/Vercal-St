@@ -178,7 +178,7 @@ function LevelsPage() {
 
     const grantedAt = new Date(accessInfo.granted_at);
     const level = levels.find((l) => l.id === levelId);
-    const interval = level?.drip_interval_days ?? 7;
+    const interval = level?.drip_interval_days ?? 0;
 
     // slot_number starts from 1. Module 1 is immediate (Day 0).
     const daysToAdd = (slotNumber - 1) * interval;
