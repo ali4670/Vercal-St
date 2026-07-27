@@ -419,7 +419,7 @@ function Index() {
                 <div className="flex items-center gap-3">
                   <img
                     src="/logo-2026, 12_38_18 PM.png"
-                    alt="ST-Company Logo"
+                    alt="ST-Smart Logo"
                     className="w-28 h-20 rounded-full object-cover border-2 border-border shadow-lg p-0.5 bg-card"
                   />
                   <div>
@@ -470,7 +470,7 @@ function Index() {
 
               {/* Copyright */}
               <div className="text-muted-foreground text-[9px] font-black uppercase tracking-widest flex flex-col justify-end gap-1">
-                <p>© 2026 ST-COMPANY CORP.</p>
+                <p>© 2026 ST-SMART CORP.</p>
                 <p>
                   Designed by{" "}
                   <a
@@ -512,7 +512,7 @@ function Index() {
             <div className="flex items-center gap-3 mb-3">
               <img
                 src="/logo-2026, 12_38_18 PM.png"
-                alt="ST-Company Logo"
+                alt="ST-Smart Logo"
                 className="w-12 h-12 rounded-2xl object-cover border border-border bg-card"
               />
               <div>
@@ -568,7 +568,7 @@ function Index() {
           <div className="px-5 py-5 border-t border-border bg-background/50">
             <div className="flex flex-col items-center gap-2 text-center">
               <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider">
-                © 2026 ST-COMPANY CORP.
+                © 2026 ST-SMART CORP.
               </p>
               <p className="text-[9px] font-bold text-muted-foreground">
                 {isAr ? "تصميم" : "Designed by"}{" "}
