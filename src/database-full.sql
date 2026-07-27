@@ -370,12 +370,16 @@ DECLARE
     v_drip_interval INTEGER;
     v_level_access_granted_at TIMESTAMP WITH TIME ZONE;
     v_incomplete_count INTEGER;
+    v_force_all_live BOOLEAN;
 BEGIN
     IF is_moderator() THEN RETURN TRUE; END IF;
 
     SELECT level_template_id, slot_number INTO v_level_template_id, v_slot_number FROM lecture_templates WHERE id = p_lecture_id;
 
     IF NOT has_level_access(v_level_template_id) THEN RETURN FALSE; END IF;
+
+    SELECT force_all_live INTO v_force_all_live FROM level_templates WHERE id = v_level_template_id;
+    IF v_force_all_live THEN RETURN TRUE; END IF;
 
     -- Drip Logic: Check when level access was granted
     SELECT granted_at INTO v_level_access_granted_at 
@@ -386,8 +390,8 @@ BEGIN
         v_level_access_granted_at := NOW();
     END IF;
 
-    SELECT drip_days INTO v_drip_interval FROM level_templates WHERE id = v_level_template_id;
-    v_drip_interval := COALESCE(v_drip_interval, 7);
+    SELECT drip_interval_days INTO v_drip_interval FROM level_templates WHERE id = v_level_template_id;
+    v_drip_interval := COALESCE(v_drip_interval, 0);
 
     IF (v_slot_number - 1) * v_drip_interval > EXTRACT(DAY FROM (NOW() - v_level_access_granted_at)) THEN
         RETURN FALSE;
