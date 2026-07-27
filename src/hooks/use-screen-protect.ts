@@ -168,6 +168,11 @@ export function useScreenProtect() {
     };
 
     const blockCopy = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isEditable = target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || target.isContentEditable;
+      if (isEditable) return;
       e.preventDefault();
       return false;
     };

@@ -90,6 +90,27 @@ interface Lecture {
   assignment_description?: string;
 }
 
+function toYouTubeEmbed(url: string): string | null {
+  const patterns = [
+    /(?:youtube\.com\/watch\?.*v=|youtube\.com\/embed\/|youtube\.com\/v\/|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
+  ];
+  for (const p of patterns) {
+    const m = url.match(p);
+    if (m) return `https://www.youtube.com/embed/${m[1]}`;
+  }
+  return null;
+}
+
+function toDriveEmbed(url: string): string | null {
+  const m = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if (m) return `https://drive.google.com/file/d/${m[1]}/preview`;
+  const m2 = url.match(/drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/);
+  if (m2) return `https://drive.google.com/file/d/${m2[1]}/preview`;
+  return null;
+}
+
+const YOUTUBE_EMBED_PARAMS = "modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&controls=0&disablekb=1&origin=" + encodeURIComponent(typeof window !== "undefined" ? window.location.origin : "");
+
 function WordDocumentViewer({ url }: { url: string }) {
   const [html, setHtml] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -1205,9 +1226,17 @@ function LecturePage() {
               >
                 {lecture.video_url.includes("youtube.com") || lecture.video_url.includes("youtu.be") ? (
                   <iframe
-                    src={lecture.video_url.replace("watch?v=", "embed/") + (lecture.video_url.includes("?") ? "&" : "?") + "modestbranding=1&rel=0&showinfo=0&iv_load_policy=3&controls=0&disablekb=1"}
+                    src={(toYouTubeEmbed(lecture.video_url) || lecture.video_url) + "?" + YOUTUBE_EMBED_PARAMS}
                     className="w-full h-full"
-                    referrerPolicy="no-referrer"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
+                ) : toDriveEmbed(lecture.video_url) ? (
+                  <iframe
+                    src={toDriveEmbed(lecture.video_url)!}
+                    className="w-full h-full"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
                   />
                 ) : (
                   <video
