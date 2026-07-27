@@ -1027,12 +1027,14 @@ function LecturePage() {
     }
   }, []);
 
-  // Detect if lecture has a native (non-YouTube) video
+  // Detect if lecture has a native (non-YouTube, non-Drive) video
   useEffect(() => {
+    const url = lecture?.video_url || "";
     isNativeVideoRef.current = !!(
-      lecture?.video_url &&
-      !lecture.video_url.includes("youtube.com") &&
-      !lecture.video_url.includes("youtu.be")
+      url &&
+      !url.includes("youtube.com") &&
+      !url.includes("youtu.be") &&
+      !url.includes("drive.google.com")
     );
   }, [lecture?.video_url]);
 
@@ -1127,7 +1129,9 @@ function LecturePage() {
       toast.error(isAr ? "يرجى قراءة المهمة بالكامل" : "Please read the full mission briefing");
       return;
     }
-    if (!isVideoFinished && lecture?.video_url && !isAdmin && !isModerator) {
+    const videoUrl = lecture?.video_url || "";
+    const isEmbed = videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be") || videoUrl.includes("drive.google.com");
+    if (!isVideoFinished && lecture?.video_url && !isEmbed && !isAdmin && !isModerator) {
       toast.error(isAr ? "يرجى إنهاء الفيديو أولاً" : "Please finish the video first");
       return;
     }
