@@ -4,10 +4,9 @@ import { FriendSearch } from "../components/FriendSearch";
 import { Leaderboard } from "../components/Leaderboard";
 import { RainingXO, ScrambledText } from "../components/RainingXO";
 import { ProfileEdit } from "../components/ProfileEdit";
-import { AdvancedTodo } from "../components/todo/AdvancedTodo";
 import { useLanguage } from "../lib/LanguageContext";
 import { useAuth } from "../hooks/use-auth";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import {
   Gamepad2,
@@ -25,6 +24,7 @@ import { Component as NewHero } from "../components/ui/hero";
 import { HeroButton } from "../funs/HeroButton";
 import { SpotlightCard } from "../components/SpotlightCard";
 
+
 export const Route = createFileRoute("/")({
   component: Index,
 });
@@ -39,7 +39,7 @@ interface Level {
 
 function Index() {
   const { isAr } = useLanguage();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [isProfileEditOpen, setIsProfileEditOpen] = useState(false);
   const [activeOnlineGame, setActiveOnlineGame] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
@@ -152,15 +152,15 @@ function Index() {
       </div>
 
       {/* Mission Section */}
-      <section className="py-8 md:py-16 relative bg-card/20 overflow-hidden border-y border-border flex flex-col items-center justify-center min-h-[20vh] md:min-h-[30vh]">
+      <section className="py-12 md:py-16 relative bg-card/20 overflow-hidden border-y border-border flex flex-col items-center justify-center min-h-[20vh] md:min-h-[30vh]">
         <motion.div
-          initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          transition={{ duration: 1 }}
-          className="text-center px-4 md:px-6 relative z-10"
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 80, damping: 16 }}
+          className="text-center px-5 md:px-6 relative z-10"
         >
           <motion.h2
-            className="text-2xl md:text-4xl lg:text-6xl font-black tracking-tighter italic mb-3 md:mb-4"
+            className="text-[clamp(1.75rem,6vw,2.25rem)] md:text-4xl lg:text-6xl font-black tracking-tighter italic mb-4 md:mb-4"
             style={{ fontFamily: '"Arial Black", Impact, sans-serif' }}
           >
             <ScrambledText
@@ -212,6 +212,7 @@ function Index() {
               <motion.h2
                 initial={{ opacity: 0, x: -20 }}
                 whileInView={{ opacity: 1, x: 0 }}
+                transition={{ type: "spring", stiffness: 80, damping: 16 }}
                 className="text-3xl md:text-5xl lg:text-7xl font-black italic tracking-tighter leading-none mb-3"
               >
                 {isAr ? "الدورات" : "OUR COURSES"}
@@ -225,10 +226,10 @@ function Index() {
                 </p>
               </div>
             </div>
-            <Link to="/levels">
+            <Link to="/levels" className="w-full md:w-auto">
               <HeroButton
                 variant="outline"
-                className="border-border text-muted-foreground hover:text-foreground px-8 h-14 rounded-2xl"
+                className="border-border text-muted-foreground hover:text-foreground w-full md:w-auto px-8 h-14 rounded-2xl"
               >
                 {isAr ? "عرض كل المستويات" : "ACCESS ALL SECTORS"}
               </HeroButton>
@@ -239,10 +240,10 @@ function Index() {
             {levels.map((level, idx) => (
               <motion.div
                 key={level.id}
-                initial={{ opacity: 0, y: 30 }}
+                initial={{ opacity: 0, y: 32 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.1 }}
-                viewport={{ once: true }}
+                transition={{ type: "spring", stiffness: 80, damping: 16, delay: idx * 0.08 }}
+                viewport={{ once: true, margin: "-40px" }}
               >
                 <Link
                   to="/levels"
@@ -255,6 +256,8 @@ function Index() {
                         level.image_url ||
                         "https://images.unsplash.com/photo-1485827404703-89b55fcc595e?auto=format&fit=crop&q=80&w=800"
                       }
+                      loading="lazy"
+                      decoding="async"
                       className="w-full h-full object-cover opacity-40 group-hover:opacity-60 transition-all duration-700 grayscale group-hover:grayscale-0"
                       alt={level.title}
                     />
@@ -311,7 +314,12 @@ function Index() {
         className="py-12 md:py-24 px-4 md:px-6 bg-muted/50 relative overflow-hidden border-y border-border"
       >
         <div className="container mx-auto max-w-7xl relative z-10">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-12 items-start">
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 80, damping: 16 }}
+            className="grid grid-cols-1 lg:grid-cols-12 gap-8 md:gap-12 items-start"
+          >
             <div className="lg:col-span-5">
               <div className="inline-flex items-center gap-3 px-3 py-1 bg-primary/10 border border-primary/20 rounded-full mb-4 md:mb-6">
                 <span className="text-primary text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em]">
@@ -356,16 +364,20 @@ function Index() {
                   tag: "COGNITIVE",
                 },
               ].map((s, i) => (
-                <div
+                <motion.div
                   key={i}
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  transition={{ type: "spring", stiffness: 80, damping: 16, delay: i * 0.1 }}
+                  viewport={{ once: true, margin: "-30px" }}
                   className="p-1 rounded-[2.5rem] bg-primary/5 border border-border hover:border-primary/40 transition-all duration-700 group"
                 >
-                  <div className="bg-card/60 backdrop-blur-3xl p-4 md:p-6 rounded-2xl md:rounded-3xl flex flex-col md:flex-row items-center justify-between gap-4 md:gap-6">
-                    <div className="flex items-center gap-4 md:gap-6 text-center md:text-left flex-col md:flex-row">
-                      <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform duration-500 shadow-2xl">
+                  <div className="bg-card/60 backdrop-blur-3xl p-4 md:p-6 rounded-2xl md:rounded-3xl flex flex-col md:flex-row items-center justify-between gap-3 md:gap-6">
+                    <div className="flex items-center gap-3 md:gap-6 text-center md:text-left flex-col md:flex-row w-full md:w-auto">
+                      <div className="w-12 h-12 md:w-12 md:h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary group-hover:scale-110 transition-transform duration-500 shadow-2xl">
                         {s.icon}
                       </div>
-                      <div>
+                      <div className="flex-1">
                         <div className="flex items-center gap-2 md:gap-3 mb-2 justify-center md:justify-start">
                           <span className="text-[8px] md:text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em]">
                             {s.tag}
@@ -380,31 +392,14 @@ function Index() {
                         </p>
                       </div>
                     </div>
-                    <div className="w-12 h-12 rounded-full border border-border flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-500 shrink-0">
+                    <div className="w-12 h-12 rounded-full border border-border flex items-center justify-center group-hover:bg-primary group-hover:text-primary-foreground transition-all duration-500 shrink-0 min-h-[44px]">
                       <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                     </div>
                   </div>
-                </div>
+                </motion.div>
               ))}
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Missions Tracker Section */}
-      <section className="py-12 md:py-20 px-4 md:px-6 bg-card backdrop-blur-sm border-t border-border">
-        <div className="container mx-auto max-w-6xl">
-          <div className="text-center mb-8 md:mb-12">
-            <h2 className="text-2xl md:text-3xl lg:text-5xl font-black italic uppercase tracking-tighter mb-2 md:mb-3">
-              {isAr ? "متتبع المهمات" : "MISSION CONTROL"}
-            </h2>
-            <p className="text-muted-foreground text-[9px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.5em]">
-              {isAr
-                ? "تحكم في أهدافك اليومية"
-                : "Command your daily objectives"}
-            </p>
-          </div>
-          <AdvancedTodo />
+          </motion.div>
         </div>
       </section>
 
@@ -605,15 +600,9 @@ function Index() {
       </footer>
 
       {/* Challenge Modal */}
-      <AnimatePresence>
-        {incomingChallenge && (
-          <div className="fixed bottom-20 md:bottom-8 left-4 right-4 md:left-auto md:right-8 md:w-[320px] z-[150]">
-            <motion.div
-              initial={{ opacity: 0, y: 100, scale: 0.9 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 20, scale: 0.9 }}
-              className="bg-card/90 border border-border backdrop-blur-2xl rounded-2xl md:rounded-4xl p-4 md:p-6 shadow-2xl"
-            >
+      {incomingChallenge && (
+        <div className="fixed bottom-20 md:bottom-8 left-4 right-4 md:left-auto md:right-8 md:w-[320px] z-[150]">
+          <div className="bg-card/90 border border-border backdrop-blur-2xl rounded-2xl md:rounded-4xl p-4 md:p-6 shadow-2xl animate-challenge-in">
               <div className="flex items-center gap-3 md:gap-4 mb-3 md:mb-4">
                 <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-primary flex items-center justify-center animate-pulse shadow-[0_0_20px_rgba(var(--primary),0.4)]">
                   <Gamepad2 className="w-5 h-5 md:w-6 md:h-6 text-background" />
@@ -643,10 +632,9 @@ function Index() {
                   <X className="w-4 h-4" />
                 </button>
               </div>
-            </motion.div>
+            </div>
           </div>
         )}
-      </AnimatePresence>
 
       <ProfileEdit
         isOpen={isProfileEditOpen}

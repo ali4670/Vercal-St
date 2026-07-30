@@ -25,8 +25,14 @@ function LevelClassroomPage() {
   const { levelId } = params;
   const { isAr } = useLanguage();
 
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (profile?.role === "parent") {
+      navigate({ to: "/parent-dashboard", replace: true });
+    }
+  }, [profile, navigate]);
 
   const [levelTitle, setLevelTitle] = useState("");
   const [groupName, setGroupName] = useState<string | null>(null);
@@ -264,16 +270,23 @@ function LevelChat({ levelId, groupId, lectureId, isAr }: { levelId: string; gro
       query = query.is("lecture_id", null);
     }
 
+    if (groupId) {
+      query = query.eq("group_id", groupId);
+    }
+
     const { data } = await query;
     if (data) setMessages(data);
-  }, [levelId, lectureId]);
+  }, [levelId, lectureId, groupId]);
 
   useEffect(() => {
     fetchMessages();
-    const channelName = lectureId ? `lecture_chat:${lectureId}` : `level:${levelId}`;
-    const filter = lectureId
+    const channelName = groupId
+      ? `level_chat:${levelId}:${lectureId || "general"}:${groupId}`
+      : (lectureId ? `lecture_chat:${lectureId}` : `level:${levelId}`);
+    let filter = lectureId
       ? `lecture_id=eq.${lectureId}`
       : `level_id=eq.${levelId}`;
+    if (groupId) filter += `,group_id=eq.${groupId}`;
     const subscription = supabase
       .channel(channelName)
       .on(
@@ -290,7 +303,7 @@ function LevelChat({ levelId, groupId, lectureId, isAr }: { levelId: string; gro
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, [levelId, lectureId, fetchMessages]);
+  }, [levelId, lectureId, groupId, fetchMessages]);
 
   useEffect(() => {
     if (chatContainerRef.current) {

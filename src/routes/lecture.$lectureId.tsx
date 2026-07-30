@@ -543,25 +543,32 @@ function LectureChat({ lectureId, levelId, groupId, isAr }: { lectureId: string;
   const canSend = isAdmin || isModerator || cooldownRemaining <= 0;
 
   const fetchMessages = useCallback(async () => {
-    const { data } = await supabase
+    let query = supabase
       .from("level_chats")
       .select("*, profiles(username, avatar_url, role)")
       .eq("lecture_id", lectureId)
       .order("created_at", { ascending: true });
+    if (groupId) {
+      query = query.eq("group_id", groupId);
+    }
+    const { data } = await query;
     if (data) setMessages(data);
-  }, [lectureId]);
+  }, [lectureId, groupId]);
 
   useEffect(() => {
     fetchMessages();
+    let filter = `lecture_id=eq.${lectureId}`;
+    if (groupId) filter += `,group_id=eq.${groupId}`;
+    const channelName = groupId ? `lecture_chat:${lectureId}:${groupId}` : `lecture_chat:${lectureId}`;
     const subscription = supabase
-      .channel(`lecture_chat:${lectureId}`)
+      .channel(channelName)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "level_chats",
-          filter: `lecture_id=eq.${lectureId}`,
+          filter,
         },
         () => fetchMessages(),
       )
@@ -569,7 +576,7 @@ function LectureChat({ lectureId, levelId, groupId, isAr }: { lectureId: string;
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, [lectureId, fetchMessages]);
+  }, [lectureId, groupId, fetchMessages]);
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -739,6 +746,12 @@ function LecturePage() {
     useAuth();
   const navigate = useNavigate();
 
+  useEffect(() => {
+    if (profile?.role === "parent") {
+      navigate({ to: "/parent-dashboard", replace: true });
+    }
+  }, [profile, navigate]);
+
   const [lecture, setLecture] = useState<Lecture | null>(null);
   const [loading, setLoading] = useState(true);
   const [isCompleted, setIsCompleted] = useState(false);
@@ -802,7 +815,7 @@ function LecturePage() {
         status: "pending",
         group_id: groupId,
         updated_at: new Date().toISOString(),
-      }, { onConflict: "student_id,lecture_id" });
+      }, { onConflict: "student_id,lecture_id,group_id" });
       if (dbError) throw dbError;
 
       setTaskImageUrl(publicUrl);
@@ -874,28 +887,13 @@ function LecturePage() {
       }
 
       if (user) {
-        const [progressDataRes, profileRes, canAccessRes] =
-          await Promise.all([
-            supabase
-              .from("student_progress")
-              .select("*")
-              .eq("student_id", user.id)
-              .eq("lecture_id", lectureId)
-              .single(),
-            supabase
-              .from("profiles")
-              .select("group_id")
-              .eq("id", user.id)
-              .single(),
-            supabase.rpc("can_student_access_level", {
-              u_id: user.id,
-              target_level_id: data.level_template_id,
-            }),
-          ]);
+        // Compute groupId FIRST so we can use it for all group-scoped checks
+        const profileRes = await supabase
+          .from("profiles")
+          .select("group_id")
+          .eq("id", user.id)
+          .single();
 
-        setIsCompleted(!!progressDataRes.data);
-        
-        // Gather all group_ids from junction table + legacy
         const allGroupIds = new Set<string>();
         if (profileRes.data?.group_id) allGroupIds.add(profileRes.data.group_id);
         const { data: sgData } = await supabase
@@ -904,7 +902,7 @@ function LecturePage() {
           .eq("student_id", user.id);
         sgData?.forEach((sg) => allGroupIds.add(sg.group_id));
 
-        let manual = false;
+        let computedGroupId: string | null = null;
         if (allGroupIds.size > 0) {
           const groupIds = Array.from(allGroupIds);
           const { data: groupAccess } = await supabase
@@ -912,35 +910,69 @@ function LecturePage() {
             .select("level_template_id, group_id")
             .in("group_id", groupIds)
             .eq("level_template_id", data.level_template_id);
-          manual = !!(groupAccess && groupAccess.length > 0);
-          // Use the group that has access to this level
           if (groupAccess && groupAccess.length > 0) {
-            setGroupId(groupAccess[0].group_id);
+            computedGroupId = groupAccess[0].group_id;
           } else if (profileRes.data?.group_id) {
-            setGroupId(profileRes.data.group_id);
+            computedGroupId = profileRes.data.group_id;
           } else {
-            setGroupId(groupIds[0]);
+            computedGroupId = groupIds[0];
+          }
+          setGroupId(computedGroupId);
+        }
+
+        // Group-scoped lecture access check
+        if (!isAdmin && !isModerator) {
+          const { data: canAccess } = await supabase.rpc("can_access_lecture", {
+            p_lecture_id: lectureId,
+            p_group_id: computedGroupId,
+          });
+          if (!canAccess) {
+            navigate({ to: "/levels" });
+            return;
           }
         }
 
-        // Fetch existing task submission
-        const { data: taskSub } = await supabase
+        let progressQuery = supabase
+          .from("student_progress")
+          .select("*")
+          .eq("student_id", user.id)
+          .eq("lecture_id", lectureId);
+        if (computedGroupId) progressQuery = progressQuery.eq("group_id", computedGroupId);
+        const [progressDataRes, canAccessRes] = await Promise.all([
+          progressQuery,
+          supabase.rpc("can_student_access_level", {
+            u_id: user.id,
+            target_level_id: data.level_template_id,
+            p_group_id: computedGroupId,
+          }),
+        ]);
+
+        setIsCompleted(!!(progressDataRes.data && progressDataRes.data.length > 0));
+
+        // Fetch existing task submission (group-scoped)
+        let taskSubQuery = supabase
           .from("lecture_task_submissions")
           .select("id, image_url, status, feedback")
           .eq("student_id", user.id)
-          .eq("lecture_id", lectureId)
-          .single();
+          .eq("lecture_id", lectureId);
+        if (computedGroupId) {
+          taskSubQuery = taskSubQuery.eq("group_id", computedGroupId);
+        } else {
+          taskSubQuery = taskSubQuery.is("group_id", null);
+        }
+        const { data: taskSub } = await taskSubQuery.maybeSingle();
         if (taskSub) {
           setTaskImageUrl(taskSub.image_url);
           setTaskStatus(taskSub.status);
           setTaskFeedback(taskSub.feedback);
         }
 
-        // Check if student can progress (assignment gate)
-        if (data.assignment_required && !isAdmin && !isModerator) {
+        // Check if student can progress (assignment / big exam gate)
+        if ((data.assignment_required || data.is_big_exam) && !isAdmin && !isModerator) {
           const { data: canProgressResult } = await supabase.rpc("can_access_next_lecture", {
             p_current_lecture_id: lectureId,
             p_student_id: user.id,
+            p_group_id: computedGroupId,
           });
           setCanProgress(!!canProgressResult);
         } else {
@@ -1117,12 +1149,12 @@ function LecturePage() {
       toast.error(isAr ? "يجب رفع المهمة أولاً" : "You must submit the assignment first");
       return;
     }
-    if (lecture?.assignment_required && taskStatus === "pending" && !isAdmin && !isModerator) {
+    if ((lecture?.assignment_required || lecture?.is_big_exam) && taskStatus === "pending" && !isAdmin && !isModerator) {
       toast.error(isAr ? "المهمة قيد المراجعة — ينتظر الموافقة" : "Assignment is pending review — waiting for approval");
       return;
     }
-    if (lecture?.assignment_required && taskStatus === "rejected" && !isAdmin && !isModerator) {
-      toast.error(isAr ? "المهمة مرفوضة — يرجى إعادة الرفع" : "Assignment was rejected — please resubmit");
+    if ((lecture?.assignment_required || lecture?.is_big_exam) && taskStatus === "rejected" && !isAdmin && !isModerator) {
+      toast.error(isAr ? "تم رفض المهمة — يلزم موافقة المشرف" : "Assignment rejected — admin approval required");
       return;
     }
     if (!hasScrolledToEnd && !isAdmin && !isModerator) {
@@ -1146,7 +1178,10 @@ function LecturePage() {
   const handleComplete = async () => {
     setIsSubmitting(true);
     try {
-      const { error: rpcError } = await supabase.rpc("complete_lecture_secure", { p_lecture_id: lectureId });
+      const { error: rpcError } = await supabase.rpc("complete_lecture_secure", {
+        p_lecture_id: lectureId,
+        p_group_id: groupId,
+      });
       if (rpcError) throw rpcError;
 
       await supabase.from("profiles").update({
@@ -1185,6 +1220,7 @@ function LecturePage() {
         lectureId={lectureId}
         questions={lecture?.quiz_data || []}
         isBigExam={lecture?.is_big_exam}
+        groupId={groupId}
         onPassed={() => {
           setIsExamOpen(false);
           handleComplete();

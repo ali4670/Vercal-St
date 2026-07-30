@@ -52,8 +52,15 @@ interface Submission {
 
 function LevelsPage() {
   const { isAr } = useLanguage();
-  const { user, isApproved, isAdmin, isModerator } = useAuth();
+  const { user, profile, isApproved, isAdmin, isModerator } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (profile?.role === "parent") {
+      navigate({ to: "/parent-dashboard", replace: true });
+    }
+  }, [profile, navigate]);
+
   const [levels, setLevels] = useState<Level[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [exams, setExams] = useState<{ level_id: string }[]>([]);
@@ -110,7 +117,7 @@ function LevelsPage() {
         ]);
 
         if (progressRes.data)
-          setProgress(progressRes.data.map((p) => p.lecture_id));
+          setProgress([...new Set(progressRes.data.map((p) => p.lecture_id))]);
         
         // Gather all group_ids from junction table + legacy group_id
         const allGroupIds = new Set<string>();
@@ -172,6 +179,17 @@ function LevelsPage() {
         <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
+  const normalizeSearch = (s: string) => {
+    const wordToNum: Record<string, string> = {
+      one: "1", two: "2", three: "3", four: "4", five: "5",
+      six: "6", seven: "7", eight: "8", nine: "9", ten: "10",
+    };
+    return s.toLowerCase()
+      .replace(/[_\-\s]+/g, "")
+      .replace(/(lec|lecture|module|unit|lesson|level|ch|chap|part|step|task|phase|stage|session)\s*/gi, "")
+      .replace(/\b(one|two|three|four|five|six|seven|eight|nine|ten)\b/gi, (m) => wordToNum[m.toLowerCase()] || m)
+      .replace(/^(0+)/, "");
+  };
 
   const getDripUnlockDate = (levelId: string, slotNumber: number) => {
     const accessInfo = access.find((a) => a.level_id === levelId);
@@ -200,14 +218,14 @@ function LevelsPage() {
       // Time-based Drip Check
       const unlockDate = getDripUnlockDate(lecture.level_id, lecture.slot_number);
       if (!unlockDate || unlockDate > new Date()) return false;
-    } else {
-      // No group access: slot 1 always unlocked, rest depend on sequential completion
-      if (lecture.slot_number > 1) {
-        const prevLecture = lectures.find(
-          (l) => l.level_id === lecture.level_id && l.slot_number === lecture.slot_number - 1
-        );
-        if (prevLecture && !progress.includes(prevLecture.id)) return false;
-      }
+    }
+
+    // Sequential completion: previous lecture must be completed
+    if (lecture.slot_number > 1) {
+      const prevLecture = lectures.find(
+        (l) => l.level_id === lecture.level_id && l.slot_number === lecture.slot_number - 1
+      );
+      if (prevLecture && !progress.includes(prevLecture.id)) return false;
     }
 
     // Sequential Exam Prerequisite
@@ -301,7 +319,7 @@ function LevelsPage() {
           </motion.div>
         )}
 
-        {/* Search + Module Picker */}
+        {/* Search */}
         <div className="mb-6 md:mb-8 space-y-3">
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -309,13 +327,13 @@ function LevelsPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={isAr ? "ابحث عن محاضرة..." : "Search lectures..."}
+              placeholder={isAr ? "ابحث عن مستوى أو محاضرة..." : "Search levels or lectures..."}
               className="w-full bg-muted/50 border border-border rounded-xl md:rounded-2xl py-3 md:py-4 pl-10 md:pl-12 pr-10 md:pr-12 text-sm font-bold outline-none focus:border-primary/50 transition-all placeholder:text-muted-foreground"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-muted flex items-center justify-center"
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-muted flex items-center justify-center hover:bg-muted/80 transition-colors"
               >
                 <X className="w-3 h-3" />
               </button>
@@ -359,12 +377,16 @@ function LevelsPage() {
               return isLevelAccessible(level);
             })
             .map((level) => {
+              const q = searchQuery.toLowerCase().trim();
+              const nq = normalizeSearch(q);
+              const levelTitleMatch = q && (level.title.toLowerCase().includes(q) || (nq && normalizeSearch(level.title).includes(nq)));
               const levelLectures = lectures
                 .filter((l) => {
                   const belongsToLevel = l.level_id === level.id;
                   const canSee = l.is_live !== false || isAdmin || isModerator;
-                  const matchesSearch = !searchQuery || l.title.toLowerCase().includes(searchQuery.toLowerCase());
-                  return belongsToLevel && canSee && matchesSearch;
+                  const title = l.title.toLowerCase();
+                  const matchesSearch = !q || title.includes(q) || (nq && normalizeSearch(title).includes(nq));
+                  return belongsToLevel && canSee && (matchesSearch || levelTitleMatch);
                 })
                 .sort((a, b) => a.slot_number - b.slot_number);
               const hasExam = exams.some((e) => e.level_id === level.id);
@@ -389,8 +411,11 @@ function LevelsPage() {
                           {String(level.level_order).padStart(2, "0")}
                         </div>
                         <div className="mb-2 text-left">
-                          <h2 className="text-lg md:text-2xl lg:text-3xl font-black italic uppercase tracking-tight text-foreground">
+                          <h2 className={`text-lg md:text-2xl lg:text-3xl font-black italic uppercase tracking-tight ${levelTitleMatch ? "text-primary" : "text-foreground"}`}>
                             {level.title}
+                            {levelTitleMatch && (
+                              <span className="ml-2 text-[8px] align-middle px-1.5 py-0.5 rounded bg-primary/20 text-primary font-black uppercase tracking-widest">LEVEL MATCH</span>
+                            )}
                           </h2>
                           <div className="flex items-center gap-4 mt-2">
                             <span className="text-muted-foreground text-[10px] font-black uppercase tracking-[0.2em]">
@@ -540,16 +565,28 @@ function LevelsPage() {
                 </motion.section>
               );
             })}
-          {levels.filter((l) => isLevelAccessible(l)).length > 0 && searchQuery && (
+          {searchQuery && levels.filter((l) => {
+            if (!isLevelAccessible(l)) return false;
+            if (selectedLevelId && l.id !== selectedLevelId) return false;
+            const q = searchQuery.toLowerCase().trim();
+            const nq = normalizeSearch(q);
+            const levelTitleMatch = l.title.toLowerCase().includes(q) || (nq && normalizeSearch(l.title).includes(nq));
+            const lectureMatch = lectures.some(lec =>
+              lec.level_id === l.id && (lec.is_live !== false || isAdmin || isModerator) &&
+              (lec.title.toLowerCase().includes(q) || (nq && normalizeSearch(lec.title).includes(nq)))
+            );
+            return levelTitleMatch || lectureMatch;
+          }).length === 0 && (
             <div className="text-center py-12 md:py-20">
               <Search className="w-8 h-8 text-muted-foreground/30 mx-auto mb-3" />
               <p className="text-muted-foreground font-bold text-sm">
-                {isAr ? "لا توجد نتائج" : "No lectures found"}
+                {isAr ? "لا توجد نتائج للبحث" : "No results found"}
               </p>
             </div>
           )}
         </div>
       </div>
+
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
     </div>
   );

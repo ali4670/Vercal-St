@@ -179,6 +179,7 @@ CREATE TABLE IF NOT EXISTS exam_submissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     student_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
     lecture_id UUID,
+    group_id UUID,
     answers JSONB NOT NULL DEFAULT '[]',
     mcq_score INTEGER,
     written_score INTEGER,
@@ -218,9 +219,10 @@ CREATE TABLE IF NOT EXISTS internal_tasks (
 -- Student Progress: Tracks completed lectures
 CREATE TABLE IF NOT EXISTS student_progress (
     student_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
-    lecture_id UUID,
+    lecture_id UUID NOT NULL,
+    group_id UUID NOT NULL,
     completed_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()),
-    PRIMARY KEY (student_id, lecture_id)
+    PRIMARY KEY (student_id, lecture_id, group_id)
 );
 
 -- Level Access: Whitelist for specific users (manual override)
@@ -328,8 +330,8 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Check if student has access to a level (Manual + Sequential Progression)
-CREATE OR REPLACE FUNCTION can_student_access_level(u_id UUID, target_level_id UUID) RETURNS BOOLEAN AS $$
-    DECLARE prev_level_id UUID; current_level_order INTEGER; lectures_count INTEGER; completed_count INTEGER;
+CREATE OR REPLACE FUNCTION can_student_access_level(u_id UUID, target_level_id UUID, p_group_id UUID DEFAULT NULL) RETURNS BOOLEAN AS $$
+    DECLARE prev_level_id UUID; current_level_order INTEGER; lectures_count INTEGER; completed_count INTEGER; v_effective_group_id UUID;
     BEGIN
       IF EXISTS (SELECT 1 FROM level_access WHERE user_id = u_id AND level_id = target_level_id) THEN
         RETURN TRUE;
@@ -347,14 +349,20 @@ CREATE OR REPLACE FUNCTION can_student_access_level(u_id UUID, target_level_id U
       IF prev_level_id IS NULL THEN RETURN TRUE; END IF;
 
       SELECT COUNT(*) INTO lectures_count FROM lecture_templates WHERE level_template_id = prev_level_id AND is_live IS NOT FALSE;
-      SELECT COUNT(*) INTO completed_count FROM student_progress JOIN lecture_templates ON student_progress.lecture_id = lecture_templates.id WHERE student_progress.student_id = u_id AND lecture_templates.level_template_id = prev_level_id;
+
+      v_effective_group_id := COALESCE(p_group_id, '00000000-0000-0000-0000-000000000000');
+      SELECT COUNT(*) INTO completed_count FROM student_progress
+        JOIN lecture_templates ON student_progress.lecture_id = lecture_templates.id
+        WHERE student_progress.student_id = u_id
+          AND lecture_templates.level_template_id = prev_level_id
+          AND student_progress.group_id = v_effective_group_id;
 
       RETURN completed_count >= lectures_count;
     END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Enforce sequential lecture access within a level
-CREATE OR REPLACE FUNCTION can_access_lecture(p_lecture_id UUID)
+CREATE OR REPLACE FUNCTION can_access_lecture(p_lecture_id UUID, p_group_id UUID DEFAULT NULL)
 RETURNS BOOLEAN AS $$
 DECLARE
     v_level_template_id UUID;
@@ -363,6 +371,7 @@ DECLARE
     v_level_access_granted_at TIMESTAMP WITH TIME ZONE;
     v_incomplete_count INTEGER;
     v_force_all_live BOOLEAN;
+    v_effective_group_id UUID;
 BEGIN
     IF is_moderator() THEN RETURN TRUE; END IF;
 
@@ -391,9 +400,12 @@ BEGIN
 
     IF v_slot_number = 1 THEN RETURN TRUE; END IF;
 
+    -- Use p_group_id if provided, otherwise match any group (sentinel or real)
+    v_effective_group_id := COALESCE(p_group_id, '00000000-0000-0000-0000-000000000000');
+
     SELECT COUNT(*) INTO v_incomplete_count
     FROM lecture_templates lt
-    LEFT JOIN student_progress sp ON lt.id = sp.lecture_id AND sp.student_id = auth.uid()
+    LEFT JOIN student_progress sp ON lt.id = sp.lecture_id AND sp.student_id = auth.uid() AND sp.group_id = v_effective_group_id
     WHERE lt.level_template_id = v_level_template_id
       AND lt.slot_number < v_slot_number
       AND sp.lecture_id IS NULL;
@@ -403,16 +415,20 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Secure lecture completion
-CREATE OR REPLACE FUNCTION complete_lecture_secure(p_lecture_id UUID)
+CREATE OR REPLACE FUNCTION complete_lecture_secure(p_lecture_id UUID, p_group_id UUID DEFAULT NULL)
 RETURNS VOID AS $$
+DECLARE
+    v_effective_group_id UUID;
 BEGIN
-    IF NOT can_access_lecture(p_lecture_id) THEN
+    IF NOT can_access_lecture(p_lecture_id, p_group_id) THEN
       RAISE EXCEPTION 'Lecture locked or prerequisites not met.';
     END IF;
 
-    INSERT INTO student_progress (student_id, lecture_id)
-    VALUES (auth.uid(), p_lecture_id)
-    ON CONFLICT (student_id, lecture_id) DO NOTHING;
+    v_effective_group_id := COALESCE(p_group_id, '00000000-0000-0000-0000-000000000000');
+
+    INSERT INTO student_progress (student_id, lecture_id, group_id)
+    VALUES (auth.uid(), p_lecture_id, v_effective_group_id)
+    ON CONFLICT (student_id, lecture_id, group_id) DO NOTHING;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -785,7 +801,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 
 -- 5. Function: check if student can access next lecture (assignment gate)
-CREATE OR REPLACE FUNCTION can_access_next_lecture(p_current_lecture_id UUID, p_student_id UUID)
+CREATE OR REPLACE FUNCTION can_access_next_lecture(p_current_lecture_id UUID, p_student_id UUID, p_group_id UUID DEFAULT NULL)
 RETURNS BOOLEAN AS $$
 DECLARE
     v_next_lecture_id UUID;
@@ -818,9 +834,15 @@ BEGIN
         RETURN TRUE;
     END IF;
 
-    SELECT status INTO v_submission_status
-    FROM lecture_task_submissions
-    WHERE student_id = p_student_id AND lecture_id = p_current_lecture_id;
+    IF p_group_id IS NOT NULL THEN
+      SELECT status INTO v_submission_status
+      FROM lecture_task_submissions
+      WHERE student_id = p_student_id AND lecture_id = p_current_lecture_id AND group_id = p_group_id;
+    ELSE
+      SELECT status INTO v_submission_status
+      FROM lecture_task_submissions
+      WHERE student_id = p_student_id AND lecture_id = p_current_lecture_id;
+    END IF;
 
     RETURN v_submission_status = 'approved';
 END;
@@ -836,7 +858,13 @@ CREATE OR REPLACE FUNCTION approve_assignment(
 DECLARE
     v_student_id UUID;
     v_lecture_id UUID;
+    v_prev_status TEXT;
+    v_current_xp INTEGER;
 BEGIN
+    -- Check previous status to avoid double-XP
+    SELECT status, student_id, lecture_id INTO v_prev_status, v_student_id, v_lecture_id
+    FROM lecture_task_submissions WHERE id = p_submission_id;
+
     UPDATE lecture_task_submissions
     SET status = 'approved',
         feedback = p_feedback,
@@ -844,8 +872,13 @@ BEGIN
         graded_by = p_moderator_id,
         graded_at = timezone('utc'::text, now()),
         updated_at = timezone('utc'::text, now())
-    WHERE id = p_submission_id
-    RETURNING student_id, lecture_id INTO v_student_id, v_lecture_id;
+    WHERE id = p_submission_id;
+
+    -- Award XP based on grade (only once — skip if already approved)
+    IF p_grade IS NOT NULL AND v_prev_status != 'approved' THEN
+        SELECT COALESCE(xp, 0) INTO v_current_xp FROM profiles WHERE id = v_student_id;
+        UPDATE profiles SET xp = v_current_xp + p_grade WHERE id = v_student_id;
+    END IF;
 
     INSERT INTO notifications (user_id, title, message, type, link)
     VALUES (
@@ -1071,7 +1104,8 @@ CREATE TABLE IF NOT EXISTS learning_milestones (
 -- 3b. ASSIGNMENT ACCESS CONTROL FUNCTIONS
 -- =============================================================
 
-CREATE OR REPLACE FUNCTION can_access_next_lecture(p_current_lecture_id UUID, p_student_id UUID)
+-- Second copy (overrides the one in section 5 above)
+CREATE OR REPLACE FUNCTION can_access_next_lecture(p_current_lecture_id UUID, p_student_id UUID, p_group_id UUID DEFAULT NULL)
 RETURNS BOOLEAN AS $$
 DECLARE
     v_next_lecture_id UUID;
@@ -1104,9 +1138,15 @@ BEGIN
         RETURN TRUE;
     END IF;
 
-    SELECT status INTO v_submission_status
-    FROM lecture_task_submissions
-    WHERE student_id = p_student_id AND lecture_id = p_current_lecture_id;
+    IF p_group_id IS NOT NULL THEN
+      SELECT status INTO v_submission_status
+      FROM lecture_task_submissions
+      WHERE student_id = p_student_id AND lecture_id = p_current_lecture_id AND group_id = p_group_id;
+    ELSE
+      SELECT status INTO v_submission_status
+      FROM lecture_task_submissions
+      WHERE student_id = p_student_id AND lecture_id = p_current_lecture_id;
+    END IF;
 
     RETURN v_submission_status = 'approved';
 END;
@@ -1121,7 +1161,13 @@ CREATE OR REPLACE FUNCTION approve_assignment(
 DECLARE
     v_student_id UUID;
     v_lecture_id UUID;
+    v_prev_status TEXT;
+    v_current_xp INTEGER;
 BEGIN
+    -- Check previous status to avoid double-XP
+    SELECT status, student_id, lecture_id INTO v_prev_status, v_student_id, v_lecture_id
+    FROM lecture_task_submissions WHERE id = p_submission_id;
+
     UPDATE lecture_task_submissions
     SET status = 'approved',
         feedback = p_feedback,
@@ -1129,8 +1175,13 @@ BEGIN
         graded_by = p_moderator_id,
         graded_at = timezone('utc'::text, now()),
         updated_at = timezone('utc'::text, now())
-    WHERE id = p_submission_id
-    RETURNING student_id, lecture_id INTO v_student_id, v_lecture_id;
+    WHERE id = p_submission_id;
+
+    -- Award XP based on grade (only once — skip if already approved)
+    IF p_grade IS NOT NULL AND v_prev_status != 'approved' THEN
+        SELECT COALESCE(xp, 0) INTO v_current_xp FROM profiles WHERE id = v_student_id;
+        UPDATE profiles SET xp = v_current_xp + p_grade WHERE id = v_student_id;
+    END IF;
 
     -- Create notification for student
     INSERT INTO notifications (user_id, title, message, type, link)
@@ -2737,3 +2788,43 @@ CREATE POLICY "Group members view messages" ON group_messages FOR SELECT USING (
 DROP POLICY IF EXISTS "Group members send messages" ON group_messages;
 CREATE POLICY "Group members send messages" ON group_messages FOR INSERT WITH CHECK (auth.uid() = sender_id AND (is_moderator() OR is_member_of_group(group_messages.group_id)));
 ALTER PUBLICATION supabase_realtime ADD TABLE group_messages;
+
+-- =============================================================
+-- 12. GROUP-SCOPED PROGRESS, EXAMS & SUBMISSIONS
+-- =============================================================
+
+-- FK: student_progress.group_id -> groups(id)
+ALTER TABLE student_progress DROP CONSTRAINT IF EXISTS fk_student_progress_group;
+ALTER TABLE student_progress ADD CONSTRAINT fk_student_progress_group
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE;
+
+-- FK: exam_submissions.group_id -> groups(id)
+ALTER TABLE exam_submissions DROP CONSTRAINT IF EXISTS fk_exam_submissions_group;
+ALTER TABLE exam_submissions ADD CONSTRAINT fk_exam_submissions_group
+  FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL;
+
+-- Index: student_progress group lookups
+CREATE INDEX IF NOT EXISTS idx_student_progress_group ON student_progress(student_id, group_id);
+
+-- Per-group task submissions: change unique to include group_id
+-- Existing entries with NULL group_id are treated as legacy/all-group
+ALTER TABLE lecture_task_submissions DROP CONSTRAINT IF EXISTS lecture_task_submissions_student_id_lecture_id_key CASCADE;
+DROP INDEX IF EXISTS idx_task_submissions_unique_group;
+ALTER TABLE lecture_task_submissions ADD UNIQUE (student_id, lecture_id, group_id);
+
+-- =============================================================
+-- 12b. MIGRATION: add group_id to existing tables
+-- (safe to re-run for upgrades)
+-- =============================================================
+ALTER TABLE student_progress ADD COLUMN IF NOT EXISTS group_id UUID;
+ALTER TABLE exam_submissions ADD COLUMN IF NOT EXISTS group_id UUID;
+
+-- For existing student_progress rows (no group_id), assign to a sentinel group.
+-- This ensures the NOT NULL constraint from the PK can be satisfied.
+-- The sentinel ('00000000-0000-0000-0000-000000000000') will never match a real group.
+-- These rows are treated as "legacy" progress (no group scope).
+UPDATE student_progress SET group_id = '00000000-0000-0000-0000-000000000000'
+  WHERE group_id IS NULL;
+ALTER TABLE student_progress ALTER COLUMN group_id SET NOT NULL;
+ALTER TABLE student_progress DROP CONSTRAINT IF EXISTS student_progress_pkey CASCADE;
+ALTER TABLE student_progress ADD PRIMARY KEY (student_id, lecture_id, group_id);
