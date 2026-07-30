@@ -19,8 +19,9 @@ import {
   MessageSquare,
   UserCircle,
   ChevronRight,
+  Bell,
+  LayoutDashboard,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
 import { Toaster } from "sonner";
 import appCss from "../styles.css?url";
 import { LanguageProvider, useLanguage } from "../lib/LanguageContext";
@@ -32,6 +33,7 @@ import { ScreenProtect } from "../components/ScreenProtect";
 
 import { HeroButton } from "../funs/HeroButton";
 import { Component as Footer } from "../components/ui/footer-taped-design";
+import { NotificationBell } from "../components/NotificationBell";
 
 function MobileMenuOverlay({
   isOpen,
@@ -51,139 +53,148 @@ function MobileMenuOverlay({
   }, [isOpen]);
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-[200] bg-background/95 backdrop-blur-xl md:hidden"
+    <div
+      className={`fixed inset-0 z-[200] bg-background/95 backdrop-blur-xl md:hidden transition-opacity duration-200 ${
+        isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+      }`}
+    >
+      <div
+        className={`absolute inset-0 flex flex-col pt-20 pb-8 px-6 overflow-y-auto transition-transform duration-300 ${
+          isOpen ? "translate-x-0" : isAr ? "translate-x-full" : "-translate-x-full"
+        }`}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-5 right-5 w-10 h-10 rounded-full bg-muted flex items-center justify-center border border-border"
         >
-          <motion.div
-            initial={{ x: isAr ? -100 : 100, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: isAr ? -100 : 100, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="absolute inset-0 flex flex-col pt-20 pb-8 px-6 overflow-y-auto"
-          >
-            <button
-              onClick={onClose}
-              className="absolute top-5 right-5 w-10 h-10 rounded-full bg-muted flex items-center justify-center border border-border"
-            >
-              <X className="w-5 h-5 text-foreground" />
-            </button>
+          <X className="w-5 h-5 text-foreground" />
+        </button>
 
-            <div className="space-y-2 mt-4">
-              <Link to="/levels" onClick={onClose}>
-                <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50 border border-border hover:bg-muted transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <BookOpen className="w-5 h-5 text-primary" />
-                    </div>
-                    <span className="font-bold text-sm">{isAr ? "الدورات" : "COURSES"}</span>
+        <div className="space-y-2 mt-4">
+          <button onClick={() => { onClose(); document.dispatchEvent(new CustomEvent('toggle-notifications')); }} className="w-full">
+            <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50 border border-border hover:bg-muted transition-all">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                  <Bell className="w-5 h-5 text-primary" />
+                </div>
+                <span className="font-bold text-sm">{isAr ? "الإشعارات" : "NOTIFICATIONS"}</span>
+              </div>
+              <ChevronRight className={`w-4 h-4 text-muted-foreground ${isAr ? "rotate-180" : ""}`} />
+            </div>
+          </button>
+          {profile?.role !== "parent" && (
+            <Link to="/levels" onClick={onClose}>
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50 border border-border hover:bg-muted transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
+                    <BookOpen className="w-5 h-5 text-primary" />
                   </div>
-                  <ChevronRight className={`w-4 h-4 text-muted-foreground ${isAr ? "rotate-180" : ""}`} />
+                  <span className="font-bold text-sm">{isAr ? "الدورات" : "COURSES"}</span>
+                </div>
+                <ChevronRight className={`w-4 h-4 text-muted-foreground ${isAr ? "rotate-180" : ""}`} />
+              </div>
+            </Link>
+          )}
+
+          {user && profile?.role === "parent" && (
+            <Link to="/parent-dashboard" onClick={onClose}>
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50 border border-border hover:bg-muted transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                    <UserIcon className="w-5 h-5 text-blue-500" />
+                  </div>
+                  <span className="font-bold text-sm">{isAr ? "لوحة أولياء الأمور" : "PARENT DASHBOARD"}</span>
+                </div>
+                <ChevronRight className={`w-4 h-4 text-muted-foreground ${isAr ? "rotate-180" : ""}`} />
+              </div>
+            </Link>
+          )}
+
+          {user && isModerator && (
+            <Link to="/moderator" onClick={onClose}>
+              <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50 border border-border hover:bg-muted transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center">
+                    <Shield className="w-5 h-5 text-red-500" />
+                  </div>
+                  <span className="font-bold text-sm">{isAr ? "لوحة التحكم" : "ADMIN PANEL"}</span>
+                </div>
+                <ChevronRight className={`w-4 h-4 text-muted-foreground ${isAr ? "rotate-180" : ""}`} />
+              </div>
+            </Link>
+          )}
+        </div>
+
+        <div className="mt-6 space-y-3">
+          <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50 border border-border">
+            <span className="text-xs font-black uppercase tracking-widest text-muted-foreground">
+              {isAr ? "الوضع" : "THEME"}
+            </span>
+            <button
+              onClick={toggleTheme}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-background border border-border"
+            >
+              {theme === "light" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-primary" />}
+              <span className="text-xs font-bold">{theme === "light" ? "Dark" : "Light"}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-auto pt-6 border-t border-border">
+          {user ? (
+            <div className="space-y-3">
+              <Link to="/profile" onClick={onClose} className="w-full flex items-center gap-3 p-4 rounded-2xl bg-muted/50 border border-border"
+              >
+                {profile?.avatar_url ? (
+                  <img src={profile.avatar_url} className="w-10 h-10 rounded-xl object-cover" />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-primary-foreground font-black text-sm">
+                    {(profile?.username || user.email?.split("@")[0] || "?").charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div className="text-left">
+                  <p className="font-bold text-sm">{profile?.username || user.email?.split("@")[0]}</p>
+                  <p className="text-xs text-muted-foreground">{profile?.role || "student"}</p>
                 </div>
               </Link>
-
-              {user && profile?.role === "parent" && (
-                <Link to="/parent-dashboard" onClick={onClose}>
-                  <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50 border border-border hover:bg-muted transition-all">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
-                        <UserIcon className="w-5 h-5 text-blue-500" />
-                      </div>
-                      <span className="font-bold text-sm">{isAr ? "لوحة أولياء الأمور" : "PARENT DASHBOARD"}</span>
-                    </div>
-                    <ChevronRight className={`w-4 h-4 text-muted-foreground ${isAr ? "rotate-180" : ""}`} />
-                  </div>
-                </Link>
-              )}
-
-              {user && isModerator && (
-                <Link to="/moderator" onClick={onClose}>
-                  <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50 border border-border hover:bg-muted transition-all">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center">
-                        <Shield className="w-5 h-5 text-red-500" />
-                      </div>
-                      <span className="font-bold text-sm">{isAr ? "لوحة التحكم" : "ADMIN PANEL"}</span>
-                    </div>
-                    <ChevronRight className={`w-4 h-4 text-muted-foreground ${isAr ? "rotate-180" : ""}`} />
-                  </div>
-                </Link>
-              )}
+              <button
+                onClick={() => { signOut(); onClose(); }}
+                className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border border-destructive/30 text-destructive hover:bg-destructive/10 transition-all"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="text-sm font-bold">{isAr ? "تسجيل الخروج" : "SIGN OUT"}</span>
+              </button>
             </div>
-
-            <div className="mt-6 space-y-3">
-              <div className="flex items-center justify-between p-4 rounded-2xl bg-muted/50 border border-border">
-                <span className="text-xs font-black uppercase tracking-widest text-muted-foreground">
-                  {isAr ? "الوضع" : "THEME"}
-                </span>
-                <button
-                  onClick={toggleTheme}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl bg-background border border-border"
-                >
-                  {theme === "light" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4 text-primary" />}
-                  <span className="text-xs font-bold">{theme === "light" ? "Dark" : "Light"}</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-auto pt-6 border-t border-border">
-              {user ? (
-                <div className="space-y-3">
-                  <button
-                    onClick={() => { onClose(); setIsProfileEditOpen(true); }}
-                    className="w-full flex items-center gap-3 p-4 rounded-2xl bg-muted/50 border border-border"
-                  >
-                    {profile?.avatar_url ? (
-                      <img src={profile.avatar_url} className="w-10 h-10 rounded-xl object-cover" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-primary-foreground font-black text-sm">
-                        {(profile?.username || user.email?.split("@")[0] || "?").charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div className="text-left">
-                      <p className="font-bold text-sm">{profile?.username || user.email?.split("@")[0]}</p>
-                      <p className="text-xs text-muted-foreground">{profile?.role || "student"}</p>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => { signOut(); onClose(); }}
-                    className="w-full flex items-center justify-center gap-2 p-3 rounded-2xl border border-destructive/30 text-destructive hover:bg-destructive/10 transition-all"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    <span className="text-sm font-bold">{isAr ? "تسجيل الخروج" : "SIGN OUT"}</span>
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => { onClose(); setIsProfileEditOpen(true); }}
-                  className="w-full p-4 rounded-2xl bg-primary text-primary-foreground font-black text-sm"
-                >
-                  {isAr ? "دخول النظام" : "SIGN IN"}
-                </button>
-              )}
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          ) : (
+              <button
+                onClick={() => { onClose(); document.dispatchEvent(new CustomEvent('open-auth-modal')); }}
+                className="w-full p-4 rounded-2xl bg-primary text-primary-foreground font-black text-sm"
+              >
+              {isAr ? "دخول النظام" : "SIGN IN"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
 function BottomNavBar() {
   const { isAr } = useLanguage();
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
 
-  const navItems = [
-    { to: "/", icon: Home, label: isAr ? "الرئيسية" : "Home" },
-    { to: "/levels", icon: BookOpen, label: isAr ? "الدورات" : "Courses" },
-    { to: "/profile", icon: UserCircle, label: isAr ? "الملف" : "Profile" },
-  ];
+  const navItems = profile?.role === "parent"
+    ? [
+        { to: "/", icon: Home, label: isAr ? "الرئيسية" : "Home" },
+        { to: "/profile", icon: UserCircle, label: isAr ? "الملف" : "Profile" },
+        { to: "/parent-dashboard", icon: LayoutDashboard, label: isAr ? "لوحة التحكم" : "Dashboard" },
+      ]
+    : [
+        { to: "/", icon: Home, label: isAr ? "الرئيسية" : "Home" },
+        { to: "/levels", icon: BookOpen, label: isAr ? "الدورات" : "Courses" },
+        { to: "/profile", icon: UserCircle, label: isAr ? "الملف" : "Profile" },
+      ];
 
   return (
     <>
@@ -197,6 +208,7 @@ function BottomNavBar() {
               </div>
             </Link>
           ))}
+          <NotificationBell />
           <button
             onClick={() => setIsOpen(true)}
             className="flex flex-col items-center gap-1 px-3 py-1"
@@ -232,34 +244,32 @@ function DesktopNav() {
           </span>
         </Link>
         <div className="flex items-center gap-3">
-          <Link to="/levels">
-            <HeroButton
-              size="sm"
-              variant="outline"
-              className="px-4 border-border text-foreground hover:bg-accent hover:text-accent-foreground transition-all duration-200"
-            >
-              <Globe className="w-3.5 h-3.5 mr-2" />
-              <span className="text-[10px] font-black uppercase tracking-widest">
-                {isAr ? "الدورات" : "COURSES"}
-              </span>
-            </HeroButton>
-          </Link>
+          {profile?.role !== "parent" && (
+            <Link to="/levels">
+              <HeroButton
+                size="sm"
+                variant="outline"
+                className="px-4 border-border text-foreground hover:bg-accent hover:text-accent-foreground transition-all duration-200"
+              >
+                <Globe className="w-3.5 h-3.5 mr-2" />
+                <span className="text-[10px] font-black uppercase tracking-widest">
+                  {isAr ? "الدورات" : "COURSES"}
+                </span>
+              </HeroButton>
+            </Link>
+          )}
 
           <button
             onClick={toggleTheme}
             className="relative flex items-center justify-center w-9 h-9 rounded-full border border-border bg-muted hover:bg-accent/10 transition-all duration-200 group"
           >
-            <AnimatePresence mode="wait" initial={false}>
+            <span className="flex items-center justify-center transition-transform duration-200">
               {theme === "light" ? (
-                <motion.span key="moon" initial={{ rotate: -90, opacity: 0, scale: 0.5 }} animate={{ rotate: 0, opacity: 1, scale: 1 }} exit={{ rotate: 90, opacity: 0, scale: 0.5 }} transition={{ duration: 0.2 }} className="flex items-center justify-center">
-                  <Moon className="w-4 h-4 text-foreground" />
-                </motion.span>
+                <Moon className="w-4 h-4 text-foreground" />
               ) : (
-                <motion.span key="sun" initial={{ rotate: 90, opacity: 0, scale: 0.5 }} animate={{ rotate: 0, opacity: 1, scale: 1 }} exit={{ rotate: -90, opacity: 0, scale: 0.5 }} transition={{ duration: 0.2 }} className="flex items-center justify-center">
-                  <Sun className="w-4 h-4 text-primary" />
-                </motion.span>
+                <Sun className="w-4 h-4 text-primary" />
               )}
-            </AnimatePresence>
+            </span>
           </button>
 
           <button
@@ -268,15 +278,14 @@ function DesktopNav() {
           >
             <span className={`text-[9px] font-black transition-colors ${language === "en" && !isAr ? "text-primary" : "text-muted-foreground"}`}>EN</span>
             <div className="w-7 h-3.5 rounded-full bg-background border border-border relative overflow-hidden">
-              <motion.div
-                animate={{ x: language === "ar" ? 14 : 0 }}
-                transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                className="absolute top-0.5 left-0.5 w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(112,224,0,0.5)]"
+              <div
+                className={`absolute top-0.5 w-2 h-2 rounded-full bg-primary shadow-[0_0_8px_rgba(112,224,0,0.5)] transition-transform duration-200 ${language === "ar" ? "left-[14px]" : "left-[2px]"}`}
               />
             </div>
             <span className={`text-[9px] font-black transition-colors ${language === "ar" ? "text-primary" : "text-muted-foreground"}`}>AR</span>
           </button>
 
+          <NotificationBell />
           {user ? (
             <div className={`flex items-center gap-3 ${isAr ? "flex-row-reverse" : ""}`}>
               {profile?.role === "parent" && (
@@ -408,17 +417,26 @@ function ThemeContent() {
   return (
     <LanguageProvider>
       <AuthProvider>
-        <ScreenProtect />
-        <div className="min-h-screen bg-background text-foreground transition-colors duration-300 screen-protect-content">
-          <InnerLayout />
-          <main className="pt-14 md:pt-24 pb-20 md:pb-0 min-h-screen bg-background transition-colors duration-300">
-            <Outlet />
-          </main>
-          <Footer />
-        </div>
-        <Toaster position="bottom-right" theme="dark" richColors />
+        <ThemeContentInner />
       </AuthProvider>
     </LanguageProvider>
+  );
+}
+
+function ThemeContentInner() {
+  const { isAdmin } = useAuth();
+  return (
+    <>
+      <ScreenProtect allowTextOperations={isAdmin} />
+      <div className={`min-h-screen bg-background text-foreground transition-colors duration-300${isAdmin ? '' : ' screen-protect-content'}`}>
+        <InnerLayout />
+        <main className="pt-14 md:pt-24 pb-20 md:pb-0 min-h-screen bg-background transition-colors duration-300">
+          <Outlet />
+        </main>
+        <Footer />
+      </div>
+      <Toaster position="bottom-right" theme="dark" richColors />
+    </>
   );
 }
 

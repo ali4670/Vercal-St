@@ -1,8 +1,13 @@
 // @ts-nocheck
 /* eslint-disable */
 
+const isMobile = () => window.innerWidth < 768;
+
 export const renderCanvas = function () {
   if (typeof window === "undefined" || typeof document === "undefined") return;
+
+  const mobile = isMobile();
+  if (mobile) return;
 
   function n(e) {
     this.init(e || {});
@@ -105,9 +110,9 @@ export const renderCanvas = function () {
     }
     document.removeEventListener("mousemove", onMousemove);
     document.removeEventListener("touchstart", onMousemove);
-    document.addEventListener("mousemove", c);
-    document.addEventListener("touchmove", c);
-    document.addEventListener("touchstart", l);
+    document.addEventListener("mousemove", c, { passive: true });
+    document.addEventListener("touchmove", c, { passive: true });
+    document.addEventListener("touchstart", l, { passive: true });
     c(e);
     o();
     render();
@@ -171,8 +176,8 @@ export const renderCanvas = function () {
   });
 
   document.addEventListener("mousemove", onMousemove);
-  document.addEventListener("touchstart", onMousemove);
-  window.addEventListener("resize", resizeCanvas);
+  document.addEventListener("touchstart", onMousemove, { passive: true });
+  window.addEventListener("resize", resizeCanvas, { passive: true });
 
   resizeCanvas();
 

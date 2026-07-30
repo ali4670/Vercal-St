@@ -22,6 +22,7 @@ import { Route as ExamLevelIdRouteImport } from './routes/exam.$levelId'
 import { Route as LevelsClassroomLevelIdRouteImport } from './routes/levels/classroom/$levelId'
 import { Route as TermsOfServiceRouteImport } from './routes/terms-of-service'
 import { Route as PrivacyPolicyRouteImport } from './routes/privacy-policy'
+import { Route as NotificationsRouteImport } from './routes/notifications'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -84,6 +85,11 @@ const PrivacyPolicyRoute = PrivacyPolicyRouteImport.update({
   path: '/privacy-policy',
   getParentRoute: () => rootRouteImport,
 } as any)
+const NotificationsRoute = NotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -99,6 +105,7 @@ export interface FileRoutesByFullPath {
   '/levels/classroom/$levelId': typeof LevelsClassroomLevelIdRoute
   '/terms-of-service': typeof TermsOfServiceRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/notifications': typeof NotificationsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -114,6 +121,7 @@ export interface FileRoutesByTo {
   '/levels/classroom/$levelId': typeof LevelsClassroomLevelIdRoute
   '/terms-of-service': typeof TermsOfServiceRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/notifications': typeof NotificationsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -130,6 +138,7 @@ export interface FileRoutesById {
   '/levels/classroom/$levelId': typeof LevelsClassroomLevelIdRoute
   '/terms-of-service': typeof TermsOfServiceRoute
   '/privacy-policy': typeof PrivacyPolicyRoute
+  '/notifications': typeof NotificationsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -146,6 +155,7 @@ export interface FileRouteTypes {
     | '/levels/classroom/$levelId'
     | '/terms-of-service'
     | '/privacy-policy'
+    | '/notifications'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -160,6 +170,7 @@ export interface FileRouteTypes {
     | '/levels/classroom/$levelId'
     | '/terms-of-service'
     | '/privacy-policy'
+    | '/notifications'
   id:
     | '__root__'
     | '/'
@@ -174,6 +185,7 @@ export interface FileRouteTypes {
     | '/levels/classroom/$levelId'
     | '/terms-of-service'
     | '/privacy-policy'
+    | '/notifications'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -189,6 +201,7 @@ export interface RootRouteChildren {
   LevelsClassroomLevelIdRoute: typeof LevelsClassroomLevelIdRoute
   TermsOfServiceRoute: typeof TermsOfServiceRoute
   PrivacyPolicyRoute: typeof PrivacyPolicyRoute
+  NotificationsRoute: typeof NotificationsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -277,6 +290,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PrivacyPolicyRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/notifications': {
+      id: '/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof NotificationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -293,6 +313,7 @@ const rootRouteChildren: RootRouteChildren = {
   LevelsClassroomLevelIdRoute: LevelsClassroomLevelIdRoute,
   TermsOfServiceRoute: TermsOfServiceRoute,
   PrivacyPolicyRoute: PrivacyPolicyRoute,
+  NotificationsRoute: NotificationsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

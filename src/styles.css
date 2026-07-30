@@ -404,3 +404,112 @@ canvas {
   -webkit-user-drag: none;
   user-drag: none;
 }
+
+/* ── Performance Optimizations ── */
+
+/* GPU compositing for animated elements */
+.gpu-layer {
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/* Content-visibility for offscreen sections */
+.content-visibility-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: 1px 500px;
+}
+
+/* Contain paint/layout for cards and sections */
+.contain-paint {
+  contain: paint;
+}
+
+.contain-layout {
+  contain: layout;
+}
+
+.contain-strict {
+  contain: strict;
+}
+
+/* Smooth scrolling with hardware acceleration */
+.smooth-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Mobile-specific performance: disable backdrop blur on low-end */
+@media (max-width: 767px) {
+  .backdrop-blur-xl,
+  .backdrop-blur-2xl,
+  .backdrop-blur-3xl {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
+  /* Force GPU compositing for fixed elements */
+  .fixed, [class*="fixed"] {
+    transform: translateZ(0);
+  }
+
+  /* Reduce motion on mobile: disable continuous framer-motion-like animations */
+  .animate-float,
+  .animate-float-rotate,
+  [style*="animation"] {
+    will-change: transform;
+  }
+}
+
+/* Challenge modal slide-in */
+@keyframes challengeIn {
+  from { opacity: 0; transform: translateY(100px) scale(0.9); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-challenge-in {
+  animation: challengeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Float animation for SpotlightCard (GPU-accelerated CSS replacement for framer-motion) */
+@keyframes floatRotate {
+  0%, 100% { transform: translateY(0px) rotate(12deg); }
+  50% { transform: translateY(-16px) rotate(12deg); }
+}
+
+.animate-float-rotate {
+  animation: floatRotate 6s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* Image loading optimizations */
+img {
+  content-visibility: auto;
+}
+
+@media (max-width: 767px) {
+  img {
+    loading: lazy;
+  }
+}
+
+/* Touch action optimizations */
+.touch-pan-y {
+  touch-action: pan-y;
+}
+
+.touch-none {
+  touch-action: none;
+}
+
+

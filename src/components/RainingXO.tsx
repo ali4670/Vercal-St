@@ -113,92 +113,113 @@ export const ScrambledText = ({
   return <span ref={elementRef} className={className} />;
 };
 
+const chars = ["X", "O"];
+
+function createCharData(): Character {
+  return {
+    char: chars[Math.random() < 0.5 ? 0 : 1],
+    x: Math.random() * 100,
+    y: Math.random() * 100,
+    speed: 0.08 + Math.random() * 0.45,
+    opacity: 0.2 + Math.random() * 0.5,
+  };
+}
+
+function isMobile() {
+  return window.innerWidth < 768;
+}
+
 export const RainingXO = () => {
-  const [characters, setCharacters] = useState<Character[]>([]);
-  const [activeIndices, setActiveIndices] = useState<Set<number>>(new Set());
+  const containerRef = useRef<HTMLDivElement>(null);
+  const charsRef = useRef<Character[]>([]);
+  const rafRef = useRef<number>(0);
+  const [ready, setReady] = useState(false);
 
-  const createCharacters = useCallback(() => {
-    const charCount = 380;
-    const newCharacters: Character[] = [];
+  const charCount = isMobile() ? 80 : 380;
+
+  useEffect(() => {
+    const data: Character[] = [];
+    for (let i = 0; i < charCount; i++) data.push(createCharData());
+    charsRef.current = data;
+
+    const el = containerRef.current;
+    if (!el) return;
+
+    el.innerHTML = "";
+    const spans: HTMLSpanElement[] = [];
     for (let i = 0; i < charCount; i++) {
-      newCharacters.push({
-        char: Math.random() > 0.5 ? "X" : "O",
-        x: Math.random() * 100,
-        y: Math.random() * 100,
-        speed: 0.08 + Math.random() * 0.45,
-        opacity: 0.2 + Math.random() * 0.5,
-      });
+      const c = data[i];
+      const span = document.createElement("span");
+      span.className = "absolute font-mono text-lg font-bold";
+      span.textContent = c.char;
+      span.style.left = c.x + "%";
+      span.style.top = c.y + "%";
+      span.style.opacity = String(c.opacity);
+      span.style.color =
+        c.char === "X" ? "oklch(0.55 0.15 35)" : "oklch(0.55 0.08 150)";
+      el.appendChild(span);
+      spans.push(span);
     }
-    return newCharacters;
-  }, []);
 
-  useEffect(() => {
-    setCharacters(createCharacters());
-  }, [createCharacters]);
+    let activeIndices = new Set<number>();
 
-  useEffect(() => {
     const updateActive = () => {
       const next = new Set<number>();
       const num = Math.floor(Math.random() * 4) + 3;
-      for (let i = 0; i < num; i++) {
-        next.add(Math.floor(Math.random() * characters.length));
-      }
-      setActiveIndices(next);
+      for (let i = 0; i < num; i++)
+        next.add(Math.floor(Math.random() * charCount));
+      activeIndices = next;
     };
-    const id = setInterval(updateActive, 80);
-    return () => clearInterval(id);
-  }, [characters.length]);
 
-  useEffect(() => {
-    let raf: number;
     const tick = () => {
-      setCharacters((prev) =>
-        prev.map((c) => ({
-          ...c,
-          y: c.y + c.speed,
-          ...(c.y >= 100 && {
-            y: -5,
-            x: Math.random() * 100,
-            char: Math.random() > 0.5 ? "X" : "O",
-          }),
-        })),
-      );
-      raf = requestAnimationFrame(tick);
+      const d = charsRef.current;
+      for (let i = 0; i < charCount; i++) {
+        const c = d[i];
+        c.y += c.speed;
+        if (c.y >= 100) {
+          c.y = -5;
+          c.x = Math.random() * 100;
+          c.char = chars[Math.random() < 0.5 ? 0 : 1];
+        }
+        const span = spans[i];
+        span.style.top = c.y + "%";
+        span.style.left = c.x + "%";
+        span.style.opacity = String(
+          activeIndices.has(i) ? 1 : c.opacity
+        );
+        const isX = c.char === "X";
+        if (activeIndices.has(i)) {
+          span.style.color = isX
+            ? "oklch(0.65 0.22 35)"
+            : "oklch(0.65 0.15 150)";
+          span.style.textShadow = "0 0 12px currentColor";
+        } else {
+          span.style.color = isX
+            ? "oklch(0.55 0.15 35)"
+            : "oklch(0.55 0.08 150)";
+          span.style.textShadow = "none";
+        }
+        span.textContent = c.char;
+      }
+      rafRef.current = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+
+    updateActive();
+    const activeInterval = setInterval(updateActive, 80);
+    rafRef.current = requestAnimationFrame(tick);
+    setReady(true);
+
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      clearInterval(activeInterval);
+    };
+  }, [charCount]);
 
   return (
     <div
+      ref={containerRef}
       className="pointer-events-none absolute inset-0 overflow-hidden"
       aria-hidden="true"
-    >
-      {characters.map((c, i) => {
-        const active = activeIndices.has(i);
-        const isX = c.char === "X";
-        return (
-          <span
-            key={i}
-            className="absolute font-mono text-lg font-bold transition-colors duration-100"
-            style={{
-              left: `${c.x}%`,
-              top: `${c.y}%`,
-              opacity: active ? 1 : c.opacity,
-              color: active
-                ? isX
-                  ? "oklch(0.65 0.22 35)"
-                  : "oklch(0.65 0.15 150)"
-                : isX
-                  ? "oklch(0.55 0.15 35)"
-                  : "oklch(0.55 0.08 150)",
-              textShadow: active ? "0 0 12px currentColor" : "none",
-            }}
-          >
-            {c.char}
-          </span>
-        );
-      })}
-    </div>
+    />
   );
 };

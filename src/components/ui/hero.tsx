@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion } from "motion/react";
 import {
   Wallet,
@@ -25,8 +25,6 @@ const SplineScene = lazy(() =>
     default: mod.SplineScene,
   })),
 );
-
-// --- Custom SVG Components for Hand-Drawn Accents ---
 
 const ArrowGreenLeft = () => (
   <svg
@@ -57,7 +55,11 @@ const ArrowGreenRight = () => (
 );
 
 const CircularBadge = () => (
-  <div className="relative w-28 h-28 md:w-36 md:h-36 bg-primary rounded-full flex items-center justify-center shadow-xl rotate-12 hover:scale-105 transition-transform cursor-pointer border-[3px] border-primary/20">
+  <motion.div
+    className="relative w-28 h-28 md:w-36 md:h-36 bg-primary rounded-full flex items-center justify-center shadow-xl rotate-12 hover:scale-105 transition-transform cursor-pointer border-[3px] border-primary/20"
+    animate={{ y: [0, -6, 0] }}
+    transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+  >
     <div className="absolute inset-1 animate-[spin_10s_linear_infinite]">
       <svg viewBox="0 0 100 100" className="w-full h-full">
         <path
@@ -88,10 +90,29 @@ const CircularBadge = () => (
         <path d="M60,10 L80,20 L70,40" />
       </svg>
     </div>
-  </div>
+  </motion.div>
 );
 
 import { supabase } from "@/lib/supabase-code";
+
+function useMobile() {
+  const [mobile, setMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    setMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setMobile(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return mobile;
+}
+
+function shadowLayers(mobile: boolean) {
+  if (mobile) {
+    return "1px 1px 0 rgba(0,0,0,0.15), 2px 2px 0 rgba(0,0,0,0.15), 3px 3px 0 rgba(0,0,0,0.15)";
+  }
+  return "1px 1px 0 rgba(0,0,0,0.15), 2px 2px 0 rgba(0,0,0,0.15), 3px 3px 0 rgba(0,0,0,0.15), 4px 4px 0 rgba(0,0,0,0.15), 5px 5px 0 rgba(0,0,0,0.15), 6px 6px 0 rgba(0,0,0,0.15), 7px 7px 0 rgba(0,0,0,0.15), 8px 8px 0 rgba(0,0,0,0.15)";
+}
 
 export const Component = () => {
   const { user, profile, signOut } = useAuth();
@@ -100,6 +121,7 @@ export const Component = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
   const [spotlight, setSpotlight] = useState<any>(null);
+  const mobile = useMobile();
 
   useEffect(() => {
     setIsClient(true);
@@ -115,6 +137,15 @@ export const Component = () => {
       .single();
     if (data) setSpotlight(data);
   };
+
+  const learnShadow = useMemo(() => shadowLayers(mobile), [mobile]);
+  const stShadow = useMemo(
+    () =>
+      mobile
+        ? "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1)"
+        : "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1), 4px 4px 0 rgba(0,0,0,0.1), 5px 5px 0 rgba(0,0,0,0.1), 6px 6px 0 rgba(0,0,0,0.1), 7px 7px 0 rgba(0,0,0,0.1), 8px 8px 0 rgba(0,0,0,0.1)",
+    [mobile],
+  );
 
   return (
     <div className="min-h-screen flex flex-col relative w-full">
@@ -134,14 +165,12 @@ export const Component = () => {
 
       {/* Navbar */}
       <nav className="relative z-20 flex items-center justify-between px-6 py-6 md:px-10 md:py-8 max-w-[1440px] mx-auto w-full">
-        {/* Mobile Toggle */}
         <div className="md:hidden">
           <button onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} className="text-foreground">
             {isMobileMenuOpen ? <X /> : <Menu />}
           </button>
         </div>
 
-        {/* Brand & Menu Items */}
         <div className="hidden md:flex items-center gap-8">
           <span className="text-foreground font-black uppercase tracking-widest text-lg">ST<span className="text-primary">-</span>COMPANY<span className="text-primary">.</span></span>
           <button
@@ -152,7 +181,6 @@ export const Component = () => {
           </button>
         </div>
 
-        {/* Language & Auth */}
         <div className="flex items-center gap-4">
           <div className="hidden md:flex items-center gap-2 px-3 py-1 rounded-full border border-border bg-muted">
             <span className={cn("text-[9px] font-black", !isAr ? "text-foreground" : "text-muted-foreground")}>EN</span>
@@ -179,7 +207,6 @@ export const Component = () => {
           </div>
         </div>
 
-        {/* Mobile Menu */}
         {isMobileMenuOpen && (
           <div className="absolute top-20 left-0 w-full bg-background/95 p-6 flex flex-col items-center gap-4 md:hidden border-b border-border z-50 backdrop-blur-xl">
             <span className="text-foreground font-black uppercase tracking-widest text-sm">ST<span className="text-primary">-</span>COMPANY</span>
@@ -202,96 +229,199 @@ export const Component = () => {
       </nav>
 
       {/* Hero Section */}
-      <main className="flex-1 relative z-10 pt-4 pb-16 md:pt-12 md:pb-48 px-2 md:px-4 flex flex-col items-center justify-center w-full max-w-[1440px] mx-auto">
-        {/* Massive Typography & Elements Container */}
-        <div className="relative w-full max-w-5xl mx-auto flex flex-col items-center justify-center text-center z-10 mt-2 mb-8 md:mt-4 md:mb-16">
-          {/* Text Stack */}
-          <div className="w-full flex flex-col items-center relative z-10 space-y-2 md:space-y-4">
-            {/* #LEARN */}
-            <div className="w-full flex justify-start pl-[10%] md:pl-[25%] relative z-30">
-              <h1
-                className="text-[clamp(4.5rem,12vw,160px)] font-black leading-[0.85] tracking-tighter text-primary m-0 p-0 uppercase"
-                style={{
-                  fontFamily: '"Arial Black", Impact, sans-serif',
-                  textShadow:
-                    "1px 1px 0 rgba(0,0,0,0.15), 2px 2px 0 rgba(0,0,0,0.15), 3px 3px 0 rgba(0,0,0,0.15), 4px 4px 0 rgba(0,0,0,0.15), 5px 5px 0 rgba(0,0,0,0.15), 6px 6px 0 rgba(0,0,0,0.15), 7px 7px 0 rgba(0,0,0,0.15), 8px 8px 0 rgba(0,0,0,0.15), 9px 9px 0 rgba(0,0,0,0.15), 10px 10px 0 rgba(0,0,0,0.15), 11px 11px 0 rgba(0,0,0,0.15), 12px 12px 0 rgba(0,0,0,0.15), 13px 13px 0 rgba(0,0,0,0.15), 14px 14px 0 rgba(0,0,0,0.15)",
-                }}
-              >
-                {isAr ? "#تعلم" : "#LEARN"}
-              </h1>
-            </div>
+      <main className="flex-1 relative z-10 pt-2 pb-12 md:pt-12 md:pb-48 px-2 md:px-4 flex flex-col items-center justify-center w-full max-w-[1440px] mx-auto">
+        <div className="relative w-full max-w-5xl mx-auto flex flex-col items-center justify-center text-center z-10 mt-1 mb-4 md:mt-4 md:mb-16">
+          {/* Mobile Hero — bold typography + supporting content */}
+          {mobile ? (
+            <div className="flex flex-col items-center w-full min-h-[80dvh] justify-center relative overflow-hidden">
+              {/* Subtle glow behind text */}
+              <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
 
-            {/* ST */}
-            <div className="w-full flex justify-center relative z-20">
-              <h1
-                className="text-[clamp(5rem,15vw,220px)] font-black leading-[0.85] tracking-tighter text-foreground m-0 p-0 uppercase"
-                style={{
-                  fontFamily: '"Arial Black", Impact, sans-serif',
-                  textShadow:
-                    "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1), 4px 4px 0 rgba(0,0,0,0.1), 5px 5px 0 rgba(0,0,0,0.1), 6px 6px 0 rgba(0,0,0,0.1), 7px 7px 0 rgba(0,0,0,0.1), 8px 8px 0 rgba(0,0,0,0.1), 9px 9px 0 rgba(0,0,0,0.1), 10px 10px 0 rgba(0,0,0,0.1), 11px 11px 0 rgba(0,0,0,0.1), 12px 12px 0 rgba(0,0,0,0.1), 13px 13px 0 rgba(0,0,0,0.1), 14px 14px 0 rgba(0,0,0,0.1)",
-                }}
-              >
-                ST
-              </h1>
-            </div>
-
-            {/* COMPANY */}
-            <div className="w-full flex justify-start pl-[15%] md:pl-[30%] relative z-10">
-              <h1
-                className="text-[clamp(4.5rem,12vw,160px)] font-black leading-[0.85] tracking-tighter text-foreground m-0 p-0 uppercase"
-                style={{
-                  fontFamily: '"Arial Black", Impact, sans-serif',
-                  textShadow:
-                    "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1), 4px 4px 0 rgba(0,0,0,0.1), 5px 5px 0 rgba(0,0,0,0.1), 6px 6px 0 rgba(0,0,0,0.1), 7px 7px 0 rgba(0,0,0,0.1), 8px 8px 0 rgba(0,0,0,0.1), 9px 9px 0 rgba(0,0,0,0.1), 10px 10px 0 rgba(0,0,0,0.1), 11px 11px 0 rgba(0,0,0,0.1), 12px 12px 0 rgba(0,0,0,0.1), 13px 13px 0 rgba(0,0,0,0.1), 14px 14px 0 rgba(0,0,0,0.1)",
-                }}
-              >
-                {isAr ? "شراكة" : "COMPANY"}
-              </h1>
-            </div>
-          </div>
-
-          {/* Absolute Overlays (Cards, Arrows, Badge) */}
-          <div className="absolute inset-0 w-full h-full pointer-events-none">
-            {/* Original Compact Spline Robot */}
-            <div className="absolute -bottom-[10%] -left-[10%] md:left-[5%] w-[200px] h-[200px] md:w-[600px] md:h-[600px] z-30 pointer-events-auto">
-              {isClient && (
-                <Suspense
-                  fallback={
-                    <div className="w-full h-full flex items-center justify-center">
-                      <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                    </div>
-                  }
+              <div className="flex flex-col items-center gap-0 w-full relative z-10">
+                <motion.h1
+                  initial={{ opacity: 0, y: 60, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ type: "spring", stiffness: 110, damping: 16 }}
+                  className="text-[clamp(5rem,16vw,160px)] font-black leading-[0.78] tracking-tighter text-primary m-0 p-0 uppercase w-full text-center"
+                  style={{
+                    fontFamily: '"Arial Black", Impact, sans-serif',
+                    textShadow: "1px 1px 0 rgba(0,0,0,0.15), 2px 2px 0 rgba(0,0,0,0.15), 3px 3px 0 rgba(0,0,0,0.15)",
+                  }}
                 >
-                  <SplineScene
-                    scene="https://prod.spline.design/kZDDjO5HuC9GJUM2/scene.splinecode"
-                    className="w-full h-full"
-                  />
-                </Suspense>
-              )}
-            </div>
+                  {isAr ? "#تعلم" : "#LEARN"}
+                </motion.h1>
 
-            {/* Spotlight Card */}
-            <SpotlightCard spotlight={spotlight} />
+                <motion.h1
+                  initial={{ opacity: 0, scale: 1.3, y: -10 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  transition={{ type: "spring", stiffness: 100, damping: 14, delay: 0.15 }}
+                  className="text-[clamp(6.5rem,22vw,220px)] font-black leading-[0.72] tracking-tighter text-foreground m-0 p-0 uppercase w-full text-center -mt-[0.06em]"
+                  style={{
+                    fontFamily: '"Arial Black", Impact, sans-serif',
+                    textShadow: "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1)",
+                  }}
+                >
+                  ST
+                </motion.h1>
 
-            {/* Decorative Arrow Left */}
-            <div className="absolute bottom-[0%] left-[0%] md:left-[10%] w-24 h-24 md:w-32 md:h-32 z-20">
-              <ArrowGreenLeft />
-            </div>
+                <motion.h1
+                  initial={{ opacity: 0, y: -40, scale: 0.85 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ type: "spring", stiffness: 110, damping: 16, delay: 0.3 }}
+                  className="text-[clamp(5rem,16vw,160px)] font-black leading-[0.78] tracking-tighter text-foreground m-0 p-0 uppercase w-full text-center -mt-[0.06em]"
+                  style={{
+                    fontFamily: '"Arial Black", Impact, sans-serif',
+                    textShadow: "1px 1px 0 rgba(0,0,0,0.1), 2px 2px 0 rgba(0,0,0,0.1), 3px 3px 0 rgba(0,0,0,0.1)",
+                  }}
+                >
+                  {isAr ? "ذكي" : "SMART"}
+                </motion.h1>
+              </div>
 
-            {/* Decorative Arrow Right */}
-            <div className="absolute top-[5%] right-[0%] md:right-[10%] w-24 h-24 md:w-32 md:h-32 z-20">
-              <ArrowGreenRight />
-            </div>
+              {/* Tagline */}
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: "spring", stiffness: 90, damping: 14, delay: 0.45 }}
+                className="text-[9px] font-black uppercase tracking-[0.35em] text-muted-foreground mt-6"
+              >
+                {isAr ? "روبوتات · ذكاء اصطناعي · هندسة" : "ROBOTICS · AI · ENGINEERING"}
+              </motion.p>
 
-            {/* Circular Badge */}
-            <div className="absolute bottom-[-10%] right-[0%] md:right-[15%] z-40 pointer-events-auto">
-              <CircularBadge />
+              {/* Description */}
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ type: "spring", stiffness: 80, damping: 14, delay: 0.55 }}
+                className="text-[11px] text-muted-foreground/70 max-w-[280px] text-center mt-2 leading-relaxed"
+              >
+                {isAr
+                  ? "منصة متكاملة للتعلم والتدريب على أحدث تقنيات الروبوتات والذكاء الاصطناعي"
+                  : "A complete platform for learning and training on the latest robotics and AI technologies"}
+              </motion.p>
+
+              {/* Spotlight card — mobile version */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ type: "spring", stiffness: 80, damping: 14, delay: 0.65 }}
+                className="mt-8 relative"
+              >
+                <div className="w-36 aspect-[3/3.5] bg-muted backdrop-blur-md border border-border rounded-[2rem] p-4 flex flex-col items-center justify-center shadow-2xl mx-auto">
+                  <div className="w-14 h-14 bg-[#2C3E50] rounded-full flex items-center justify-center mb-3 shadow-inner border-[3px] border-border overflow-hidden">
+                    {spotlight?.avatar_override_url ? (
+                      <img src={spotlight.avatar_override_url} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-lg font-black text-white/60">S</div>
+                    )}
+                  </div>
+                  <div className="text-center">
+                    <p className="font-bold text-xs text-foreground">{spotlight?.profiles?.username || "cto.robotics"}</p>
+                    <p className="text-[8px] text-white/80 mt-1 uppercase">{spotlight?.title || "Core Architecture"}</p>
+                    {spotlight?.description && (
+                      <p className="text-[7px] mt-2 font-black text-primary uppercase tracking-widest italic">{spotlight.description}</p>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
             </div>
-          </div>
+          ) : (
+            /* Desktop Hero — full experience */
+            <>
+              {/* Text Stack */}
+              <div className="w-full flex flex-col items-center relative z-10 space-y-1 md:space-y-4">
+                <motion.div
+                  initial={{ opacity: 0, x: -40 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  transition={{ type: "spring", stiffness: 90, damping: 14 }}
+                  viewport={{ once: true }}
+                  className="w-full flex justify-start pl-[25%] relative z-30"
+                >
+                  <h1
+                    className="text-[clamp(4.5rem,12vw,160px)] font-black leading-[0.85] tracking-tighter text-primary m-0 p-0 uppercase"
+                    style={{
+                      fontFamily: '"Arial Black", Impact, sans-serif',
+                      textShadow: learnShadow,
+                    }}
+                  >
+                    {isAr ? "#تعلم" : "#LEARN"}
+                  </h1>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, y: 24 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  transition={{ type: "spring", stiffness: 80, damping: 15, delay: 0.1 }}
+                  viewport={{ once: true }}
+                  className="w-full flex justify-center relative z-20"
+                >
+                  <h1
+                    className="text-[clamp(5rem,15vw,220px)] font-black leading-[0.85] tracking-tighter text-foreground m-0 p-0 uppercase"
+                    style={{
+                      fontFamily: '"Arial Black", Impact, sans-serif',
+                      textShadow: stShadow,
+                    }}
+                  >
+                    ST
+                  </h1>
+                </motion.div>
+
+                <motion.div
+                  initial={{ opacity: 0, x: 40 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  transition={{ type: "spring", stiffness: 90, damping: 14, delay: 0.2 }}
+                  viewport={{ once: true }}
+                  className="w-full flex justify-start pl-[30%] relative z-10"
+                >
+                  <h1
+                    className="text-[clamp(4.5rem,12vw,160px)] font-black leading-[0.85] tracking-tighter text-foreground m-0 p-0 uppercase"
+                    style={{
+                      fontFamily: '"Arial Black", Impact, sans-serif',
+                      textShadow: stShadow,
+                    }}
+                  >
+                    {isAr ? "ذكي" : "SMART"}
+                  </h1>
+                </motion.div>
+              </div>
+
+              <div className="absolute inset-0 w-full h-full pointer-events-none">
+                <div className="absolute -bottom-[10%] -left-[10%] md:left-[5%] w-[200px] h-[200px] md:w-[600px] md:h-[600px] z-30 pointer-events-auto">
+                  {isClient && (
+                    <Suspense
+                      fallback={
+                        <div className="w-full h-full flex items-center justify-center">
+                          <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      }
+                    >
+                      <SplineScene
+                        scene="https://prod.spline.design/kZDDjO5HuC9GJUM2/scene.splinecode"
+                        className="w-full h-full"
+                      />
+                    </Suspense>
+                  )}
+                </div>
+
+                <SpotlightCard spotlight={spotlight} />
+
+                <div className="absolute bottom-[0%] left-[10%] w-32 h-32 z-20">
+                  <ArrowGreenLeft />
+                </div>
+
+                <div className="absolute top-[5%] right-[10%] w-32 h-32 z-20">
+                  <ArrowGreenRight />
+                </div>
+
+                <div className="absolute bottom-[-10%] right-[15%] z-40 pointer-events-auto">
+                  <CircularBadge />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </main>
 
-      {/* Card Stack Gallery Section */}
       <section className="hidden md:block relative z-20 mt-auto w-full">
         <ImageGallery />
       </section>

@@ -92,7 +92,13 @@ CREATE OR REPLACE FUNCTION approve_assignment(
 DECLARE
     v_student_id UUID;
     v_lecture_id UUID;
+    v_prev_status TEXT;
+    v_current_xp INTEGER;
 BEGIN
+    -- Check previous status to avoid double-XP
+    SELECT status, student_id, lecture_id INTO v_prev_status, v_student_id, v_lecture_id
+    FROM lecture_task_submissions WHERE id = p_submission_id;
+
     UPDATE lecture_task_submissions
     SET status = 'approved',
         feedback = p_feedback,
@@ -100,8 +106,13 @@ BEGIN
         graded_by = p_moderator_id,
         graded_at = timezone('utc'::text, now()),
         updated_at = timezone('utc'::text, now())
-    WHERE id = p_submission_id
-    RETURNING student_id, lecture_id INTO v_student_id, v_lecture_id;
+    WHERE id = p_submission_id;
+
+    -- Award XP based on grade (only once — skip if already approved)
+    IF p_grade IS NOT NULL AND v_prev_status != 'approved' THEN
+        SELECT COALESCE(xp, 0) INTO v_current_xp FROM profiles WHERE id = v_student_id;
+        UPDATE profiles SET xp = v_current_xp + p_grade WHERE id = v_student_id;
+    END IF;
 
     -- Create notification for student
     INSERT INTO notifications (user_id, title, message, type, link)

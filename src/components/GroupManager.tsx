@@ -143,13 +143,6 @@ export function GroupManager() {
     fetchData();
   };
 
-  const updateDripOverride = async (assignmentId: string, days: number | null) => {
-    await supabase.from("group_level_assignments")
-      .update({ drip_override_days: days })
-      .eq("id", assignmentId);
-    fetchData();
-  };
-
   const assignStudent = async (studentId: string, groupId: string) => {
     const { error } = await supabase.from("student_groups").upsert(
       { student_id: studentId, group_id: groupId },
@@ -291,12 +284,14 @@ export function GroupManager() {
                       </span>
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); deleteGroup(group); }}
-                    className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100"
-                  >
-                    <Trash2 className="w-3 h-3 text-red-400" />
-                  </button>
+                  {isAdmin && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteGroup(group); }}
+                      className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors opacity-60 hover:opacity-100"
+                    >
+                      <Trash2 className="w-3 h-3 text-red-400" />
+                    </button>
+                  )}
                   {isExpanded ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
                 </div>
 
@@ -379,23 +374,9 @@ export function GroupManager() {
                                     <p className="text-[9px] font-bold truncate">L{lt.level_order} — {lt.title}</p>
                                   </div>
                                   {assigned && assignment && (
-                                    <div className="flex items-center gap-1">
-                                      <input
-                                        type="number"
-                                        min={0}
-                                        max={365}
-                                        value={assignment.drip_override_days ?? ""}
-                                        onChange={(e) => updateDripOverride(
-                                          assignment.id,
-                                          e.target.value ? parseInt(e.target.value) : null
-                                        )}
-                                        placeholder={`${lt.drip_interval_days}`}
-                                        className="w-12 bg-muted/50 border border-border rounded px-1.5 py-0.5 text-[8px] text-foreground text-center"
-                                        title={isAr ? "عدد أيام البث" : "Drip override days"}
-                                        onClick={(e) => e.stopPropagation()}
-                                      />
-                                      <span className="text-[7px] text-muted-foreground">
-                                        {isAr ? "يوم" : "d"}
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[8px] text-muted-foreground">
+                                        {lt.drip_interval_days}{isAr ? " ي" : "d"}
                                       </span>
                                     </div>
                                   )}

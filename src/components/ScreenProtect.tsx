@@ -1,7 +1,11 @@
 import { useScreenProtect } from "../hooks/use-screen-protect";
 
-export function ScreenProtect() {
-  useScreenProtect();
+interface Props {
+  allowTextOperations?: boolean;
+}
+
+export function ScreenProtect({ allowTextOperations }: Props) {
+  useScreenProtect(allowTextOperations);
 
   return (
     <div

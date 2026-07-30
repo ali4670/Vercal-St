@@ -77,7 +77,7 @@ function isBlockedKey(e: KeyboardEvent): boolean {
   return false;
 }
 
-export function useScreenProtect() {
+export function useScreenProtect(allowTextOperations?: boolean) {
   const cleanupRefs = useRef<(() => void)[]>([]);
 
   useEffect(() => {
@@ -95,59 +95,70 @@ export function useScreenProtect() {
       }
     };
 
-    const blockContext = (e: MouseEvent) => {
-      e.preventDefault();
-      return false;
-    };
-
-    const blockDrag = (e: DragEvent) => {
-      e.preventDefault();
-      return false;
-    };
-
-    const blockCopy = (e: ClipboardEvent) => {
-      const target = e.target as HTMLElement;
-      const isEditable = target instanceof HTMLInputElement
-        || target instanceof HTMLTextAreaElement
-        || target.isContentEditable;
-      if (isEditable) return;
-      e.preventDefault();
-      return false;
-    };
-
     const blockBeforeUnload = (e: BeforeUnloadEvent) => {
       e.returnValue = "";
     };
 
-    const blockPointer = (e: PointerEvent) => {
-      if (e.button === 2) {
-        e.preventDefault();
-        return false;
-      }
-    };
-
     document.addEventListener("keydown", blockKey, true);
     document.addEventListener("keyup", blockKey, true);
-    document.addEventListener("contextmenu", blockContext, true);
-    document.addEventListener("dragstart", blockDrag, true);
-    document.addEventListener("copy", blockCopy, true);
-    document.addEventListener("cut", blockCopy, true);
-    document.addEventListener("paste", blockCopy, true);
-    document.addEventListener("pointerdown", blockPointer, true);
     window.addEventListener("beforeunload", blockBeforeUnload);
+
+    if (!allowTextOperations) {
+      const blockContext = (e: MouseEvent) => {
+        e.preventDefault();
+        return false;
+      };
+
+      const blockDrag = (e: DragEvent) => {
+        e.preventDefault();
+        return false;
+      };
+
+      const blockCopy = (e: ClipboardEvent) => {
+        const target = e.target as HTMLElement;
+        const isEditable = target instanceof HTMLInputElement
+          || target instanceof HTMLTextAreaElement
+          || target.isContentEditable;
+        if (isEditable) return;
+        e.preventDefault();
+        return false;
+      };
+
+      const blockPointer = (e: PointerEvent) => {
+        if (e.button === 2) {
+          e.preventDefault();
+          return false;
+        }
+      };
+
+      document.addEventListener("contextmenu", blockContext, true);
+      document.addEventListener("dragstart", blockDrag, true);
+      document.addEventListener("copy", blockCopy, true);
+      document.addEventListener("cut", blockCopy, true);
+      document.addEventListener("paste", blockCopy, true);
+      document.addEventListener("pointerdown", blockPointer, true);
+
+      return () => {
+        document.removeEventListener("keydown", blockKey, true);
+        document.removeEventListener("keyup", blockKey, true);
+        document.removeEventListener("contextmenu", blockContext, true);
+        document.removeEventListener("dragstart", blockDrag, true);
+        document.removeEventListener("copy", blockCopy, true);
+        document.removeEventListener("cut", blockCopy, true);
+        document.removeEventListener("paste", blockCopy, true);
+        document.removeEventListener("pointerdown", blockPointer, true);
+        window.removeEventListener("beforeunload", blockBeforeUnload);
+        cleanupRefs.current.forEach((fn) => fn());
+        cleanupRefs.current = [];
+      };
+    }
 
     return () => {
       document.removeEventListener("keydown", blockKey, true);
       document.removeEventListener("keyup", blockKey, true);
-      document.removeEventListener("contextmenu", blockContext, true);
-      document.removeEventListener("dragstart", blockDrag, true);
-      document.removeEventListener("copy", blockCopy, true);
-      document.removeEventListener("cut", blockCopy, true);
-      document.removeEventListener("paste", blockCopy, true);
-      document.removeEventListener("pointerdown", blockPointer, true);
       window.removeEventListener("beforeunload", blockBeforeUnload);
       cleanupRefs.current.forEach((fn) => fn());
       cleanupRefs.current = [];
     };
-  }, []);
+  }, [allowTextOperations]);
 }

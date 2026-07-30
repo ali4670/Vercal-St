@@ -10,6 +10,7 @@ import {
   Save,
   Trash2,
   ChevronRight,
+  ChevronDown,
   Layout,
   BookOpen,
   Settings,
@@ -508,7 +509,7 @@ function ModeratorDashboard() {
             {activeTab === "tasks" && <InternalTasks isAr={isAr} />}
             {activeTab === "failed_exams" && <FailedExams isAr={isAr} />}
             {activeTab === "grading" && <GradingHub isAr={isAr} />}
-            {activeTab === "assignments" && <AssignmentsHub isAr={isAr} />}
+            {activeTab === "assignments" && <AssignmentsHub isAr={isAr} isAdmin={isAdmin} />}
             {activeTab === "media" && (
               <motion.div key="media" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
                 <div className="mb-4">
@@ -795,8 +796,8 @@ function AnalyticsTab({ levelId, isAr }: { levelId: string | null; isAr: boolean
                         {!r.is_correct && <p className="text-sm text-destructive">Correct Answer: {q?.options[q.correct]}</p>}
                       </div>
                     );
-                  })}
-                </div>
+            })}
+          </div>
               )}
             </div>
           ))}
@@ -834,7 +835,7 @@ function SpotlightManagement({ isAr }: { isAr: boolean }) {
   };
 
   const fetchUsers = async () => {
-    const { data } = await supabase.from("profiles").select("id, username, phone_number");
+    const { data } = await supabase.from("profiles").select("id, username, phone_number, avatar_url");
     if (data) setUsers(data);
   };
 
@@ -842,6 +843,8 @@ function SpotlightManagement({ isAr }: { isAr: boolean }) {
     (u.username && u.username.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (u.phone_number && u.phone_number.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+
+  const selectedUser = users.find(u => u.id === selectedUserId);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -904,14 +907,21 @@ function SpotlightManagement({ isAr }: { isAr: boolean }) {
                         className="w-full bg-foreground/20 border border-border rounded-2xl p-4 text-sm font-bold outline-none focus:border-primary/50" 
                         placeholder={isAr ? "ابحث بالاسم أو الهاتف..." : "Search by name or phone..."} 
                     />
-                    <select 
-                        value={selectedUserId} 
-                        onChange={(e) => setSelectedUserId(e.target.value)} 
-                        className="w-full bg-foreground/20 border border-border rounded-2xl p-4 text-sm font-bold outline-none focus:border-primary/50 text-foreground"
-                    >
-                        <option value="">{filteredUsers.length > 0 ? (isAr ? "اختر من القائمة" : "Select from list") : (isAr ? "لا يوجد نتائج" : "No agents found")}</option>
-                        {filteredUsers.map(u => <option key={u.id} value={u.id} className="bg-neutral-900">{u.username} {u.phone_number ? `(${u.phone_number})` : ''}</option>)}
-                    </select>
+                    <div className="flex gap-3 items-center">
+                        {selectedUser && (
+                            <div className="w-12 h-12 rounded-full border-2 border-primary/30 overflow-hidden shrink-0 bg-foreground/20">
+                                <img src={selectedUser.avatar_url || ""} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+                            </div>
+                        )}
+                        <select 
+                            value={selectedUserId} 
+                            onChange={(e) => setSelectedUserId(e.target.value)} 
+                            className="flex-1 bg-foreground/20 border border-border rounded-2xl p-4 text-sm font-bold outline-none focus:border-primary/50 text-foreground"
+                        >
+                            <option value="">{filteredUsers.length > 0 ? (isAr ? "اختر من القائمة" : "Select from list") : (isAr ? "لا يوجد نتائج" : "No agents found")}</option>
+                            {filteredUsers.map(u => <option key={u.id} value={u.id} className="bg-neutral-900">{u.username} {u.phone_number ? `(${u.phone_number})` : ''}</option>)}
+                        </select>
+                    </div>
                 </div>
             </div>
 
@@ -964,7 +974,7 @@ function SpotlightManagement({ isAr }: { isAr: boolean }) {
                 <p className="text-[8px] font-black uppercase text-muted-foreground tracking-widest text-center mb-4">LIVE PREVIEW ON SYSTEM</p>
                 <div className="flex items-center gap-6 justify-center grayscale opacity-40 scale-90">
                     <div className="w-16 h-16 rounded-full border-2 border-primary overflow-hidden">
-                        <img src={avatarUrl || spotlight.profiles?.avatar_url} className="w-full h-full object-cover" />
+                        <img src={avatarUrl || selectedUser?.avatar_url || spotlight.profiles?.avatar_url} className="w-full h-full object-cover" />
                     </div>
                     <div className="text-left">
                         <p className="font-black italic text-xl leading-none">{spotlight.profiles?.username}</p>
@@ -1382,13 +1392,13 @@ function UserManagement({ isAr }: { isAr: boolean }) {
                             onKeyDown={(e) => e.stopPropagation()}
                         />
                         <select
-                            className="bg-foreground/20 border border-border rounded-lg p-1.5 text-[8px] text-foreground w-full"
+                            className="bg-foreground/20 border border-border rounded-lg p-1.5 text-[8px] text-foreground w-full [color-scheme:dark]"
                             onChange={(e) => { if (e.target.value) linkStudentToParent(user.id, e.target.value); }}
                             defaultValue=""
                         >
-                            <option value="">{isAr ? "ولي الأمر" : "Parent"}</option>
+                            <option value="" className="bg-background text-foreground">{isAr ? "ولي الأمر" : "Parent"}</option>
                             {users.filter(u => u.role === 'parent').map(parent => (
-                                <option key={parent.id} value={parent.id}>{parent.username}</option>
+                                <option key={parent.id} value={parent.id} className="bg-background text-foreground">{parent.username}</option>
                             ))}
                         </select>
                     </div>
@@ -1410,13 +1420,13 @@ function UserManagement({ isAr }: { isAr: boolean }) {
                             onKeyDown={(e) => e.stopPropagation()}
                         />
                         <select
-                            className="bg-foreground/20 border border-border rounded-lg p-1.5 text-[8px] text-foreground w-full"
+                            className="bg-foreground/20 border border-border rounded-lg p-1.5 text-[8px] text-foreground w-full [color-scheme:dark]"
                             onChange={(e) => { if (e.target.value) linkStudentToParent(e.target.value, user.id); }}
                             defaultValue=""
                         >
-                            <option value="">{isAr ? "طالب" : "Student"}</option>
+                            <option value="" className="bg-background text-foreground">{isAr ? "طالب" : "Student"}</option>
                             {users.filter(u => u.role === 'student').map(student => (
-                                <option key={student.id} value={student.id}>{student.username}</option>
+                                <option key={student.id} value={student.id} className="bg-background text-foreground">{student.username}</option>
                             ))}
                         </select>
                     </div>
@@ -1432,17 +1442,18 @@ function UserManagement({ isAr }: { isAr: boolean }) {
 
 
 
-function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerator: boolean; isAdmin: boolean }) {
+export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: boolean; isModerator: boolean; isAdmin: boolean; isStudent?: boolean }) {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [levels, setLevels] = useState<Level[]>([]);
   const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
-  const [selectedChatType, setSelectedChatType] = useState<"dm" | "level" | "group" | null>(null);
+  const [studentGroupIds, setStudentGroupIds] = useState<string[]>([]);
+  const [groupLevels, setGroupLevels] = useState<Record<string, Level[]>>({});
+  const [browsingGroupId, setBrowsingGroupId] = useState<string | null>(null);
+  const [selectedChatType, setSelectedChatType] = useState<"dm" | "level" | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [selectedLectureId, setSelectedLectureId] = useState<string | null>(null);
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [levelChatGroupId, setLevelChatGroupId] = useState<string | null>(null);
-  const [levelGroups, setLevelGroups] = useState<{ id: string; name: string }[]>([]);
   const [levelLectures, setLevelLectures] = useState<Record<string, { id: string; title: string; slot_number: number }[]>>({});
   const [expandedLevels, setExpandedLevels] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<any[]>([]);
@@ -1452,7 +1463,7 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchProfilesAndLevels();
+    fetchInitialData();
   }, []);
 
   useEffect(() => {
@@ -1500,52 +1511,51 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
           },
         )
         .subscribe();
-    } else if (selectedChatType === "group" && selectedGroupId) {
-      fetchMessages();
-      subscription = supabase
-        .channel(`group_messages:${selectedGroupId}`)
-        .on(
-          "postgres_changes",
-          {
-            event: "INSERT",
-            schema: "public",
-            table: "group_messages",
-            filter: `group_id=eq.${selectedGroupId}`,
-          },
-          () => {
-            fetchMessages();
-          },
-        )
-        .subscribe();
     }
     return () => {
       if (subscription) supabase.removeChannel(subscription);
     };
-  }, [selectedChatType, selectedUserId, selectedLevelId, selectedLectureId, selectedGroupId, levelChatGroupId, myProfile?.id]);
+  }, [selectedChatType, selectedUserId, selectedLevelId, selectedLectureId, levelChatGroupId, myProfile?.id]);
 
   useEffect(() => {
-    // Scroll to bottom on new message
     if (chatContainerRef.current) {
       chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
     }
   }, [messages]);
 
-  const fetchProfilesAndLevels = async () => {
-    const { data: profilesData } = await supabase
-      .from("profiles")
-      .select("*")
-      .neq("id", myProfile?.id);
-    if (profilesData) setProfiles(profilesData);
+  const fetchInitialData = async () => {
+    let allowedGroupIds: string[] | null = null;
+    if (isStudent && myProfile) {
+      const { data: sgData } = await supabase
+        .from("student_groups")
+        .select("group_id")
+        .eq("student_id", myProfile.id);
+      if (sgData) {
+        allowedGroupIds = sgData.map((sg: any) => sg.group_id);
+        setStudentGroupIds(allowedGroupIds);
+      }
+    }
 
-    const [levelsRes, groupsRes] = await Promise.all([
+    if (!isStudent) {
+      const { data: profilesData } = await supabase
+        .from("profiles")
+        .select("*")
+        .neq("id", myProfile?.id);
+      if (profilesData) setProfiles(profilesData);
+    }
+
+    const [levelsRes, groupsRes, assignmentsRes] = await Promise.all([
       supabase
         .from("level_templates")
-        .select("id, title, level_order, is_published")
+        .select("id, title, level_order, is_published, image_url")
         .order("level_order", { ascending: true }),
       supabase
         .from("groups")
         .select("id, name")
         .order("name"),
+      supabase
+        .from("group_level_assignments")
+        .select("group_id, level_template_id, level_templates:level_template_id(id, title, level_order, is_published, image_url)"),
     ]);
 
     if (levelsRes.data) {
@@ -1561,12 +1571,45 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
       }
       setLevelLectures(lecMap);
     }
-    if (groupsRes.data) setGroups(groupsRes.data);
+    if (groupsRes.data) {
+      const filtered = allowedGroupIds
+        ? groupsRes.data.filter((g: any) => allowedGroupIds!.includes(g.id))
+        : groupsRes.data;
+      setGroups(filtered);
+    }
+
+    if (assignmentsRes.data) {
+      const glMap: Record<string, Level[]> = {};
+      for (const a of assignmentsRes.data) {
+        if (allowedGroupIds && !allowedGroupIds.includes(a.group_id)) continue;
+        if (!glMap[a.group_id]) glMap[a.group_id] = [];
+        if (a.level_templates) glMap[a.group_id].push(a.level_templates as any);
+      }
+      setGroupLevels(glMap);
+    }
+
+    if (isStudent && allowedGroupIds) {
+      const { data: groupData } = await supabase
+        .from("groups")
+        .select("moderator_id")
+        .in("id", allowedGroupIds);
+      const modIds = new Set<string>();
+      if (groupData) {
+        for (const g of groupData) {
+          if (g.moderator_id) modIds.add(g.moderator_id);
+        }
+      }
+      const { data: modProfiles } = await supabase
+        .from("profiles")
+        .select("*")
+        .in("id", [...modIds])
+        .neq("id", myProfile?.id || "");
+      if (modProfiles) setProfiles(modProfiles);
+    }
   };
 
   const fetchMessages = async () => {
     if (selectedChatType === "dm" && selectedUserId && myProfile) {
-      console.log("Fetching DM messages...");
       const { data, error } = await supabase
         .from("direct_messages")
         .select("*, sender:profiles!sender_id(username, avatar_url, role)")
@@ -1574,21 +1617,17 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
           `and(sender_id.eq.${myProfile.id},receiver_id.eq.${selectedUserId}),and(sender_id.eq.${selectedUserId},receiver_id.eq.${myProfile.id})`,
         )
         .order("created_at", { ascending: true });
-      
       if (error) {
         console.error("DM Fetch error:", error);
       } else {
-        console.log("Fetched DM messages:", data);
         setMessages(data || []);
       }
     } else if (selectedChatType === "level" && selectedLevelId) {
       if (!levelChatGroupId) { setMessages([]); return; }
-      console.log("Fetching Level messages...");
       let query = supabase
         .from("level_chats")
-        .select("*, profiles(username, avatar_url, role)")
+        .select("*, sender:profiles!sender_id(username, avatar_url, role)")
         .eq("level_id", selectedLevelId)
-        .eq("group_id", levelChatGroupId)
         .order("created_at", { ascending: true });
 
       if (selectedLectureId) {
@@ -1598,21 +1637,8 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
       }
 
       const { data, error } = await query;
-      
       if (error) {
         console.error("Level Chat Fetch error:", error);
-      } else {
-        console.log("Fetched Level messages:", data);
-        setMessages(data || []);
-      }
-    } else if (selectedChatType === "group" && selectedGroupId) {
-      const { data, error } = await supabase
-        .from("group_messages")
-        .select("*, profiles!sender_id(username, avatar_url, role)")
-        .eq("group_id", selectedGroupId)
-        .order("created_at", { ascending: true });
-      if (error) {
-        console.error("Group Chat Fetch error:", error);
       } else {
         setMessages(data || []);
       }
@@ -1624,7 +1650,6 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
   const sendMessage = async () => {
     if (!newMessage.trim() || !myProfile) return;
 
-    console.log("Sending message...", { selectedChatType, selectedUserId, selectedLevelId });
     if (selectedChatType === "dm" && selectedUserId) {
       const { error } = await supabase.from("direct_messages").insert([
         {
@@ -1637,16 +1662,13 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
         console.error("DM Send error:", error);
         toast.error(isAr ? "فشل إرسال الرسالة" : "Failed to send message.");
       } else {
-        console.log("DM sent successfully");
-        fetchMessages(); // Force immediate refresh
+        fetchMessages();
       }
     } else if (selectedChatType === "level" && selectedLevelId) {
-      if (!levelChatGroupId) { toast.error(isAr ? "اختر مجموعة أولاً" : "Select a group first"); return; }
       const insertData: any = {
         level_id: selectedLevelId,
         sender_id: myProfile.id,
         content: newMessage,
-        group_id: levelChatGroupId,
       };
       if (selectedLectureId) insertData.lecture_id = selectedLectureId;
       const { error } = await supabase.from("level_chats").insert([insertData]);
@@ -1654,71 +1676,28 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
         console.error("Chat Send error:", error);
         toast.error(isAr ? "فشل إرسال رسالة الفصل" : "Failed to send classroom message.");
       } else {
-        console.log("Chat message sent");
-        fetchMessages();
-      }
-    } else if (selectedChatType === "group" && selectedGroupId) {
-      const { error } = await supabase.from("group_messages").insert([{
-        group_id: selectedGroupId,
-        sender_id: myProfile.id,
-        content: newMessage,
-      }]);
-      if (error) {
-        toast.error(isAr ? "فشل إرسال الرسالة" : "Failed to send message.");
-      } else {
         fetchMessages();
       }
     }
     setNewMessage("");
   };
 
-  const selectChat = async (type: "dm" | "level" | "group", id: string) => {
-    setSelectedChatType(type);
+  const selectGroup = async (groupId: string) => {
+    setBrowsingGroupId(groupId === browsingGroupId ? null : groupId);
+    setSelectedChatType(null);
+    setSelectedUserId(null);
+    setSelectedLevelId(null);
     setSelectedLectureId(null);
     setLevelChatGroupId(null);
-    setLevelGroups([]);
-    if (type === "dm") {
-      setSelectedUserId(id);
-      setSelectedLevelId(null);
-      setSelectedGroupId(null);
-    } else if (type === "group") {
-      setSelectedGroupId(id);
-      setSelectedUserId(null);
-      setSelectedLevelId(null);
-    } else {
-      setSelectedLevelId(id);
-      setSelectedUserId(null);
-      setSelectedGroupId(null);
-      const { data: gla } = await supabase
-        .from("group_level_assignments")
-        .select("group_id, groups:group_id(id, name)")
-        .eq("level_template_id", id);
-      if (gla && gla.length > 0) {
-        const lvlGroups = gla.map((g: any) => ({ id: g.group_id, name: g.groups?.name || g.group_id }));
-        setLevelGroups(lvlGroups);
-        if (lvlGroups.length === 1) setLevelChatGroupId(lvlGroups[0].id);
-      }
-    }
     setMessages([]);
-    setNewMessage("");
   };
 
-  const selectLecture = async (levelId: string, lectureId: string) => {
+  const selectLevelChat = (levelId: string, groupId: string, lectureId?: string) => {
     setSelectedChatType("level");
     setSelectedLevelId(levelId);
-    setSelectedLectureId(lectureId);
+    setSelectedLectureId(lectureId || null);
+    setLevelChatGroupId(groupId);
     setSelectedUserId(null);
-    setLevelChatGroupId(null);
-    setLevelGroups([]);
-    const { data: gla } = await supabase
-      .from("group_level_assignments")
-      .select("group_id, groups:group_id(id, name)")
-      .eq("level_template_id", levelId);
-    if (gla && gla.length > 0) {
-      const lvlGroups = gla.map((g: any) => ({ id: g.group_id, name: g.groups?.name || g.group_id }));
-      setLevelGroups(lvlGroups);
-      if (lvlGroups.length === 1) setLevelChatGroupId(lvlGroups[0].id);
-    }
     setMessages([]);
     setNewMessage("");
   };
@@ -1733,18 +1712,14 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
   };
 
   const deleteMessage = async (messageId: string) => {
-    const table = selectedChatType === "dm" ? "direct_messages" : selectedChatType === "group" ? "group_messages" : "level_chats";
-    console.log(`Attempting to delete message ${messageId} from ${table}`);
+    const table = selectedChatType === "dm" ? "direct_messages" : "level_chats";
     const { error } = await supabase.from(table).delete().eq("id", messageId);
-    
     if (error) {
       console.error("Delete error:", error);
       toast.error(isAr ? "فشل حذف الرسالة" : "Failed to delete message.");
     } else {
-      console.log("Message deleted in DB, refreshing...");
       toast.success(isAr ? "تم حذف الرسالة" : "Message deleted");
-      await fetchMessages(); // Ensure refresh completes
-      console.log("Messages refreshed");
+      await fetchMessages();
     }
   };
 
@@ -1753,16 +1728,21 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
     p.phone_number?.includes(chatSearch)
   );
 
-  const hasChatOpen = selectedChatType && (selectedUserId || selectedLevelId || selectedGroupId);
+  const hasChatOpen = selectedChatType && (selectedUserId || selectedLevelId);
 
   return (
     <div className="h-[calc(100dvh-200px)] md:h-[600px] lg:h-[700px] flex flex-col md:flex-row gap-0 md:gap-4 relative">
       {/* Sidebar */}
-      <aside className={`${hasChatOpen ? 'hidden md:flex' : 'flex'} w-full md:w-72 lg:w-80 bg-foreground/20 border border-border rounded-xl md:rounded-2xl overflow-hidden flex-col shrink-0 ${hasChatOpen ? '' : 'flex-1 md:flex-none'}`}>
+      <aside className={`${hasChatOpen ? 'hidden md:flex' : 'flex'} w-full md:w-72 lg:w-80 bg-foreground/10 border border-border rounded-xl md:rounded-2xl overflow-hidden flex-col shrink-0 ${hasChatOpen ? '' : 'flex-1 md:flex-none'}`}>
         <div className="p-2 md:p-4 flex flex-col h-full overflow-hidden">
-          <h3 className="text-[9px] md:text-xs font-black uppercase tracking-[0.2em] text-muted-foreground mb-2">
-            {isAr ? "قنوات التواصل" : "CHATS"}
-          </h3>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-5 h-5 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center">
+              <MessageSquare className="w-2.5 h-2.5 text-primary" />
+            </div>
+            <h3 className="text-[9px] md:text-xs font-black uppercase tracking-[0.2em] text-muted-foreground">
+              {isAr ? "قنوات التواصل" : "CHATS"}
+            </h3>
+          </div>
 
           {/* Search */}
           <div className="relative mb-2">
@@ -1771,7 +1751,7 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
               type="text"
               value={chatSearch}
               onChange={(e) => setChatSearch(e.target.value)}
-              placeholder={isAr ? "بحث بالاسم أو الرقم..." : "Search name or number..."}
+              placeholder={isAr ? "بحث..." : "Search..."}
               className="w-full bg-background/50 border border-border rounded-lg py-1.5 pl-8 pr-3 text-xs font-bold focus:outline-none focus:border-primary/50 transition-all placeholder:text-muted-foreground"
             />
             {chatSearch && (
@@ -1782,95 +1762,126 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
           </div>
 
           <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
+            {!isStudent && (
+              <>
+            {/* GROUPS — primary navigation */}
             <h4 className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">
-              {isAr ? "فصول المستوى" : "LEVELS"}
+              {isAr ? "المجموعات" : "GROUPS"}
             </h4>
-            {levels.map((level) => {
-              const lectures = levelLectures[level.id] || [];
-              const isExpanded = expandedLevels.has(level.id);
-              const isActiveLevel = selectedChatType === "level" && selectedLevelId === level.id;
+            {groups.filter(g => g.name?.toLowerCase().includes(chatSearch.toLowerCase())).map((group) => {
+              const isBrowsing = browsingGroupId === group.id;
+              const assignedLevels = groupLevels[group.id] || [];
               return (
-                <div key={level.id}>
-                  <div className={`flex items-center gap-2 rounded-xl transition-all border ${isActiveLevel && !selectedLectureId ? "bg-primary/10 border-primary/30 text-foreground" : "hover:bg-muted border-transparent"}`}>
-                    <button
-                      onClick={() => selectChat("level", level.id)}
-                      className="flex-1 flex items-center gap-2.5 p-2 text-left"
-                    >
-                      <div className="w-10 h-10 rounded-full bg-foreground/10 overflow-hidden flex-shrink-0 border border-border">
-                        {level.image_url ? (
-                            <img src={level.image_url} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <MessageSquare className="w-4 h-4 text-muted-foreground/30" />
+                <div key={group.id}>
+                  <button
+                    onClick={() => selectGroup(group.id)}
+                    className={`w-full flex items-center gap-2.5 p-2 rounded-xl transition-all ${isBrowsing ? "bg-primary/10 border border-primary/30" : "hover:bg-muted border border-transparent"}`}
+                  >
+                    <div className="w-10 h-10 rounded-full bg-primary/10 overflow-hidden flex-shrink-0 border border-border flex items-center justify-center">
+                      <Users className="w-4 h-4 text-primary/60" />
+                    </div>
+                    <div className="text-left overflow-hidden flex-1 min-w-0">
+                      <p className="font-bold text-sm truncate">{group.name}</p>
+                      <p className="text-[9px] text-muted-foreground">{assignedLevels.length} {isAr ? "مستوى" : "levels"}</p>
+                    </div>
+                    <ChevronRight className={`w-4 h-4 text-muted-foreground transition-transform ${isBrowsing ? "rotate-90" : ""}`} />
+                  </button>
+
+                  {/* Assigned levels for this group */}
+                  {isBrowsing && assignedLevels.length > 0 && (
+                    <div className="ml-4 mt-0.5 space-y-0.5 border-l-2 border-border/50 pl-2">
+                      {assignedLevels.map((level) => {
+                        const lectures = levelLectures[level.id] || [];
+                        const isExpanded = expandedLevels.has(level.id);
+                        const isActiveLevel = selectedChatType === "level" && selectedLevelId === level.id && levelChatGroupId === group.id;
+                        return (
+                          <div key={level.id}>
+                            <div className={`flex items-center gap-2 rounded-xl transition-all ${isActiveLevel && !selectedLectureId ? "bg-primary/10 border border-primary/30" : "hover:bg-muted/50"}`}>
+                              <button
+                                onClick={() => selectLevelChat(level.id, group.id)}
+                                className="flex-1 flex items-center gap-2 p-2 text-left"
+                              >
+                                <div className="w-8 h-8 rounded-full bg-foreground/10 overflow-hidden flex-shrink-0 border border-border">
+                                  {level.image_url ? (
+                                    <img src={level.image_url} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center">
+                                      <MessageSquare className="w-3.5 h-3.5 text-muted-foreground/30" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="text-left overflow-hidden flex-1 min-w-0">
+                                  <p className="font-bold text-xs truncate">{level.title}</p>
+                                  <p className="text-[8px] text-muted-foreground">
+                                    {lectures.length > 0 ? `${lectures.length} units` : "Channel"}
+                                  </p>
+                                </div>
+                              </button>
+                              {lectures.length > 0 && (
+                                <button
+                                  onClick={() => toggleLevelExpand(level.id)}
+                                  className="pr-2 text-muted-foreground hover:text-foreground transition-colors"
+                                >
+                                  <ChevronRight className={`w-3.5 h-3.5 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+                                </button>
+                              )}
+                            </div>
+                            {isExpanded && lectures.length > 0 && (
+                              <div className="ml-9 mt-0.5 space-y-0.5">
+                                {lectures.map((lec) => (
+                                  <button
+                                    key={lec.id}
+                                    onClick={() => selectLevelChat(level.id, group.id, lec.id)}
+                                    className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all ${
+                                      selectedLectureId === lec.id && levelChatGroupId === group.id
+                                        ? "bg-primary/10 text-foreground"
+                                        : "hover:bg-muted/50 text-muted-foreground"
+                                    }`}
+                                  >
+                                    <div className="w-1.5 h-1.5 rounded-full bg-primary/40 flex-shrink-0" />
+                                    <span className="text-[11px] font-bold truncate">
+                                      {lec.slot_number}: {lec.title}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                      <div className="text-left overflow-hidden flex-1 min-w-0">
-                        <p className="font-bold text-sm truncate">{level.title}</p>
-                        <p className="text-[8px] text-muted-foreground">
-                          {lectures.length > 0 ? `${lectures.length} units` : "Channel"}
-                        </p>
-                      </div>
-                    </button>
-                    {lectures.length > 0 && (
-                      <button
-                        onClick={() => toggleLevelExpand(level.id)}
-                        className="pr-3 text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        <ChevronRight className={`w-4 h-4 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-                      </button>
-                    )}
-                  </div>
-                  {isExpanded && lectures.length > 0 && (
-                    <div className="ml-8 mt-0.5 space-y-0.5">
-                      {lectures.map((lec) => (
-                        <button
-                          key={lec.id}
-                          onClick={() => selectLecture(level.id, lec.id)}
-                          className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all ${
-                            selectedLectureId === lec.id
-                              ? "bg-primary/10 text-foreground"
-                              : "hover:bg-muted/50 text-muted-foreground"
-                          }`}
-                        >
-                          <div className="w-1.5 h-1.5 rounded-full bg-primary/40 flex-shrink-0" />
-                          <span className="text-[11px] font-bold truncate">
-                            {lec.slot_number}: {lec.title}
-                          </span>
-                        </button>
-                      ))}
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {isBrowsing && assignedLevels.length === 0 && (
+                    <div className="ml-4 mt-0.5 px-3 py-2">
+                      <p className="text-[10px] text-muted-foreground">{isAr ? "لا توجد مستويات مخصصة" : "No levels assigned"}</p>
                     </div>
                   )}
                 </div>
               );
             })}
+            </>)}
 
-            <h4 className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground mt-3 mb-1">
-              {isAr ? "مجموعات" : "GROUPS"}
+            {/* DIRECT MESSAGES */}
+            <div className="flex items-center gap-2 mt-4 mb-1.5">
+              <div className="w-1 h-1 rounded-full bg-primary/40" />
+              <h4 className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+              {isStudent ? (isAr ? "المشرف الخاص بك" : "YOUR MODERATOR") : (isAr ? "رسائل مباشرة" : "DIRECT MESSAGES")}
             </h4>
-            {groups.filter(g => g.name?.toLowerCase().includes(chatSearch.toLowerCase())).map((group) => (
-              <button
-                key={group.id}
-                onClick={() => selectChat("group", group.id)}
-                className={`w-full flex items-center gap-2.5 p-2 rounded-xl transition-all ${selectedChatType === "group" && selectedGroupId === group.id ? "bg-primary text-black shadow-lg shadow-primary/10" : "hover:bg-muted"}`}
-              >
-                <div className="w-10 h-10 rounded-full bg-primary/10 overflow-hidden flex-shrink-0 border border-border flex items-center justify-center">
-                  <Users className="w-4 h-4 text-primary/60" />
-                </div>
-                <div className="text-left overflow-hidden flex-1 min-w-0">
-                  <p className="font-bold text-sm truncate">{group.name}</p>
-                  <p className="text-[9px] text-muted-foreground">{isAr ? "محادثة جماعية" : "Group chat"}</p>
-                </div>
-              </button>
-            ))}
-
-            <h4 className="text-[8px] md:text-[9px] font-black uppercase tracking-widest text-muted-foreground mt-3 mb-1">
-              {isAr ? "رسائل مباشرة" : "DIRECT MESSAGES"}
-            </h4>
+            </div>
             {filteredProfiles.map((p) => (
               <button
                 key={p.id}
-                onClick={() => selectChat("dm", p.id)}
+                onClick={() => {
+                  setSelectedChatType("dm");
+                  setSelectedUserId(p.id);
+                  setSelectedLevelId(null);
+                  setSelectedLectureId(null);
+                  setLevelChatGroupId(null);
+                  setBrowsingGroupId(null);
+                  setMessages([]);
+                  setNewMessage("");
+                }}
                 className={`w-full flex items-center gap-2.5 p-2 rounded-xl transition-all ${selectedChatType === "dm" && selectedUserId === p.id ? "bg-primary text-black shadow-lg shadow-primary/10" : "hover:bg-muted"}`}
               >
                 <div className="w-10 h-10 rounded-full bg-foreground/10 overflow-hidden flex-shrink-0 border border-border">
@@ -1896,36 +1907,32 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
       </aside>
 
       {/* Chat area */}
-      <div className={`${hasChatOpen ? 'flex' : 'hidden md:flex'} flex-1 bg-foreground/20 border border-border rounded-xl md:rounded-2xl flex-col overflow-hidden min-w-0`}>
+      <div className={`${hasChatOpen ? 'flex' : 'hidden md:flex'} flex-1 bg-foreground/10 border border-border rounded-xl md:rounded-2xl flex-col overflow-hidden min-w-0`}>
         {selectedChatType && (selectedUserId || selectedLevelId) ? (
           <>
-            {/* WhatsApp-style header */}
-            <header className="bg-muted/80 backdrop-blur-md px-3 py-2.5 border-b border-border flex items-center gap-3">
+            {/* Chat header */}
+            <header className="bg-muted/60 backdrop-blur-md px-4 py-3 border-b border-border flex items-center gap-3">
               <button
-                onClick={() => { setSelectedChatType(null); setSelectedUserId(null); setSelectedLevelId(null); setSelectedLectureId(null); setMessages([]); }}
-                className="md:hidden p-1.5 rounded-full hover:bg-muted transition-colors"
+                onClick={() => { setSelectedChatType(null); setSelectedUserId(null); setSelectedLevelId(null); setSelectedLectureId(null); setLevelChatGroupId(null); setMessages([]); }}
+                className="md:hidden p-1.5 rounded-full hover:bg-foreground/10 transition-colors"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <div className="w-9 h-9 rounded-full bg-foreground/10 overflow-hidden flex-shrink-0 border border-border">
+              <div className="w-10 h-10 rounded-full bg-foreground/10 overflow-hidden flex-shrink-0 border-2 border-border/50">
                 {(() => {
                   if (selectedChatType === "dm") {
                     const profile = profiles.find((p) => p.id === selectedUserId);
-                    return profile?.avatar_url ? <img src={profile.avatar_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-sm font-black text-muted-foreground/40">{profile?.username?.charAt(0)}</div>;
-                  }
-                  if (selectedChatType === "group") {
-                    return <div className="w-full h-full flex items-center justify-center"><Users className="w-4 h-4 text-primary/60" /></div>;
+                    return profile?.avatar_url ? <img src={profile.avatar_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-lg font-black text-muted-foreground/40">{profile?.username?.charAt(0)}</div>;
                   }
                   const selectedLevel = levels.find((l) => l.id === selectedLevelId);
-                  return selectedLevel?.image_url ? <img src={selectedLevel.image_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><MessageSquare className="w-4 h-4 text-muted-foreground/30" /></div>;
+                  return selectedLevel?.image_url ? <img src={selectedLevel.image_url} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center"><MessageSquare className="w-5 h-5 text-muted-foreground/30" /></div>;
                 })()}
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-bold text-sm truncate">
-                  {selectedChatType === "dm"
-                    ? profiles.find((p) => p.id === selectedUserId)?.username
-                    : selectedChatType === "group"
-                      ? groups.find((g) => g.id === selectedGroupId)?.name
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm truncate">
+                    {selectedChatType === "dm"
+                      ? profiles.find((p) => p.id === selectedUserId)?.username
                       : selectedLectureId
                         ? (() => {
                             const lecs = levelLectures[selectedLevelId || ""] || [];
@@ -1933,119 +1940,142 @@ function MessagingHub({ isAr, isModerator, isAdmin }: { isAr: boolean; isModerat
                             return lec ? `Unit ${lec.slot_number}: ${lec.title}` : levels.find((l) => l.id === selectedLevelId)?.title;
                           })()
                         : levels.find((l) => l.id === selectedLevelId)?.title}
-                </h3>
-                <p className="text-[10px] text-muted-foreground truncate">
-                  {selectedChatType === "dm" ? "online" : selectedChatType === "group" ? "group chat" : selectedLectureId ? "lecture chat" : "classroom"}
+                  </h3>
+                  {selectedChatType === "dm" && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/70 flex-shrink-0 shadow-sm shadow-emerald-500/30" />
+                  )}
+                </div>
+                <p className="text-[10px] text-muted-foreground/60 truncate mt-0.5">
+                  {selectedChatType === "dm"
+                    ? (isAr ? "متصل" : "online")
+                    : levelChatGroupId
+                      ? `${groups.find(g => g.id === levelChatGroupId)?.name || ""} ${selectedLectureId ? "— lecture" : ""}`
+                      : (isAr ? "الفصل الدراسي" : "classroom")}
                 </p>
               </div>
             </header>
 
-            {/* Group selector for level chats */}
-            {selectedChatType === "level" && levelGroups.length > 1 && (
-              <div className="flex gap-1.5 px-3 py-2 border-b border-border bg-muted/40 overflow-x-auto">
-                {levelGroups.map((g) => (
-                  <button
-                    key={g.id}
-                    onClick={() => { setLevelChatGroupId(g.id); setMessages([]); }}
-                    className={`px-3 py-1 rounded-full text-[11px] font-bold whitespace-nowrap transition-all ${
-                      levelChatGroupId === g.id
-                        ? "bg-primary text-black"
-                        : "bg-foreground/10 text-muted-foreground hover:bg-foreground/20"
-                    }`}
-                  >
-                    {g.name}
-                  </button>
-                ))}
-              </div>
-            )}
-            {selectedChatType === "level" && levelGroups.length === 0 && (
-              <div className="px-3 py-2 border-b border-border bg-muted/40">
-                <p className="text-[11px] text-muted-foreground text-center">
-                  {isAr ? "لا توجد مجموعات مخصصة لهذا المستوى" : "No groups assigned to this level"}
-                </p>
-              </div>
-            )}
-
             {/* Messages area */}
             <div
               ref={chatContainerRef}
-              className="flex-1 overflow-y-auto px-3 py-4 space-y-1.5 custom-scrollbar"
-              style={{ background: 'linear-gradient(to bottom, rgba(15,15,15,0.3), rgba(10,10,10,0.5))' }}
+              className="flex-1 overflow-y-auto px-3 md:px-4 py-4 space-y-2 custom-scrollbar"
+              style={{ background: 'linear-gradient(180deg, rgba(0,0,0,0.05) 0%, rgba(0,0,0,0.12) 100%)' }}
             >
+              {messages.length === 0 && (
+                <div className="flex items-center justify-center h-full">
+                  <div className="text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-foreground/5 border border-border mx-auto mb-3 flex items-center justify-center rotate-12">
+                      <MessageSquare className="w-6 h-6 text-muted-foreground/30" />
+                    </div>
+                    <p className="text-xs font-bold text-muted-foreground/50">
+                      {isAr ? "لا توجد رسائل بعد" : "No messages yet"}
+                    </p>
+                    <p className="text-[9px] text-muted-foreground/30 mt-1">
+                      {isAr ? "ابدأ المحادثة بإرسال رسالة" : "Start the conversation"}
+                    </p>
+                  </div>
+                </div>
+              )}
               {messages.map((m, i) => {
                   const sender = m.sender || m.profiles;
                   const isMe = m.sender_id === myProfile?.id;
                   const showSender = !isMe && (i === 0 || messages[i - 1]?.sender_id !== m.sender_id);
                   return (
-                    <div
-                      key={i}
-                      className={`flex ${isMe ? "justify-end" : "justify-start"} ${showSender ? "mt-3" : "mt-0.5"}`}
+                    <motion.div
+                      key={m.id || i}
+                      initial={{ opacity: 0, y: 16, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ type: "spring", stiffness: 120, damping: 18, delay: Math.min(i * 0.02, 0.3) }}
+                      className={`flex ${isMe ? "justify-end" : "justify-start"} ${showSender ? "mt-4" : "mt-1"}`}
                     >
-                      <div
-                        className={`relative group max-w-[85%] md:max-w-[65%] ${isMe ? "bg-primary text-black rounded-2xl rounded-br-md shadow-md" : "bg-muted border border-border/50 rounded-2xl rounded-bl-md"} px-3 py-2`}
-                      >
-                        {!isMe && showSender && (
-                          <p className="text-[10px] font-black text-primary/80 mb-0.5">{sender?.username}</p>
+                      <div className={`max-w-[88%] md:max-w-[72%] ${isMe ? "order-1" : "order-2"}`}>
+                        {showSender && (
+                          <div className="flex items-center gap-2 mb-1.5 px-1">
+                            <div className="w-6 h-6 rounded-full bg-foreground/10 overflow-hidden border border-border/50 flex-shrink-0">
+                              {sender?.avatar_url ? (
+                                <img src={sender.avatar_url} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[8px] font-black text-muted-foreground/40 uppercase">
+                                  {sender?.username?.charAt(0)}
+                                </div>
+                              )}
+                            </div>
+                            <span className="text-[10px] font-bold text-muted-foreground/70">
+                              {sender?.username || "Unknown"}
+                              {!isStudent && sender?.role === "admin" && <span className="text-yellow-500/80 ml-1 text-[8px]">● {isAr ? "مدير" : "admin"}</span>}
+                              {!isStudent && sender?.role === "moderator" && <span className="text-blue-400/80 ml-1 text-[8px]">● mod</span>}
+                            </span>
+                          </div>
                         )}
-                        <p className="text-[13px] leading-relaxed">{m.content}</p>
-                        <div className={`flex items-center justify-end gap-1.5 mt-0.5 ${isMe ? "text-black/50" : "text-muted-foreground"}`}>
-                          <span className="text-[9px]">
-                            {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                          </span>
-                          {isMe && <Check className="w-3 h-3" />}
+                        <div
+                          className={`px-3.5 py-2.5 text-sm leading-relaxed break-words shadow-sm ${
+                            isMe
+                              ? "bg-primary text-primary-foreground rounded-2xl rounded-tr-sm border border-primary/20"
+                              : "bg-foreground/10 backdrop-blur-sm text-foreground rounded-2xl rounded-tl-sm border border-border/30"
+                          }`}
+                        >
+                          {m.content}
                         </div>
-
-                        {(isAdmin || isMe) && (
-                          <button
-                            onClick={() => deleteMessage(m.id)}
-                            className="absolute -bottom-4 right-0 p-1.5 rounded-full bg-red-500/90 text-white opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        )}
+                        <div className={`flex items-center gap-2 mt-0.5 px-1 ${isMe ? "justify-end" : "justify-start"}`}>
+                          <span className="text-[8px] text-muted-foreground/40">
+                            {new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {(isAdmin || isModerator) && (
+                            <button
+                              onClick={() => deleteMessage(m.id)}
+                              className="text-[8px] text-red-400/40 hover:text-red-400 transition-colors px-1 py-0.5 rounded hover:bg-red-500/10"
+                            >
+                              {isAr ? "حذف" : "del"}
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    </motion.div>
                   );
                 })}
-              {messages.length === 0 && (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-muted-foreground text-xs font-bold uppercase tracking-widest">{isAr ? "ابدأ المحادثة" : "Start chatting"}</p>
-                </div>
-              )}
             </div>
 
-            {/* WhatsApp-style input bar */}
-            <div className="bg-muted/60 backdrop-blur-md px-2 py-2 border-t border-border flex items-center gap-2">
-              <input
-                type="text"
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-                placeholder={isAr ? "رسالة..." : "Message..."}
-                className="flex-1 bg-background border border-border rounded-full py-2.5 px-4 text-sm focus:outline-none focus:border-primary/50 transition-all"
-              />
-              <button
-                onClick={sendMessage}
-                disabled={!newMessage.trim() || (selectedChatType === "level" && !levelChatGroupId)}
-                className="w-10 h-10 rounded-full bg-primary text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:hover:scale-100 shadow-lg shadow-primary/20"
-              >
-                <Send className="w-4 h-4" />
-              </button>
+            {/* Input area */}
+            <div className="p-3 md:p-4 border-t border-border bg-muted/30 backdrop-blur-sm">
+              <form onSubmit={(e) => { e.preventDefault(); sendMessage(); }} className="flex gap-2 items-end">
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    placeholder={isAr ? "اكتب رسالة..." : "Type a message..."}
+                    className="w-full bg-background/50 border border-border/60 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary/50 focus:bg-background/80 transition-all placeholder:text-muted-foreground/50"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={!newMessage.trim()}
+                  className="px-4 py-3 bg-primary text-primary-foreground rounded-xl font-bold text-sm hover:opacity-90 active:scale-[0.97] transition-all disabled:opacity-25 disabled:active:scale-100 flex items-center gap-2 shadow-sm"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </form>
             </div>
           </>
         ) : (
-          <div className="hidden md:flex flex-1 flex-col items-center justify-center gap-4">
-            <MessageSquare className="w-12 h-12 text-muted-foreground/20" />
-            <h3 className="font-black italic uppercase tracking-widest text-sm text-muted-foreground">
-              {isAr ? "اختر محادثة" : "Select a chat"}
-            </h3>
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center px-6">
+              <div className="w-16 h-16 rounded-2xl bg-foreground/5 border border-border mx-auto mb-4 flex items-center justify-center -rotate-6">
+                <MessageSquare className="w-7 h-7 text-muted-foreground/25" />
+              </div>
+              <h3 className="text-sm font-black uppercase tracking-[0.25em] text-muted-foreground/60">
+                {isAr ? "اختر محادثة" : "SELECT A CHAT"}
+              </h3>
+              <p className="text-[10px] text-muted-foreground/40 mt-2 max-w-[200px] mx-auto leading-relaxed">
+                {isAr ? "اختر مجموعة لعرض مستوياتها أو أرسل رسالة مباشرة" : "Pick a group to explore its levels or send a direct message"}
+              </p>
+            </div>
           </div>
         )}
       </div>
     </div>
   );
 }
-
 // Helper to generate UUIDs (consider a utility if used elsewhere)
 const uuidv4 = () => {
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
@@ -2092,8 +2122,8 @@ function TaskSubmissionsGrid({ lectureId, levelId, isAr }: { lectureId: string; 
     const [subsRes, studentsRes] = await Promise.all([
       (() => {
         let q = supabase.from("lecture_task_submissions").select("*, profiles:student_id(username, avatar_url)").eq("lecture_id", lectureId);
-        if (groupIds.length > 0 && studentIds.length > 0) {
-          q = q.in("student_id", studentIds);
+        if (groupIds.length > 0) {
+          q = q.in("student_id", studentIds.length > 0 ? studentIds : ["00000000-0000-0000-0000-000000000000"]);
         }
         return q;
       })(),
@@ -4292,9 +4322,12 @@ function GradingHub({ isAr }: { isAr: boolean }) {
 // ASSIGNMENTS HUB — Pending Reviews Dashboard
 // ═══════════════════════════════════════════════════════
 
-function AssignmentsHub({ isAr }: { isAr: boolean }) {
+function AssignmentsHub({ isAr, isAdmin }: { isAr: boolean; isAdmin: boolean }) {
   const { user } = useAuth();
   const [submissions, setSubmissions] = useState<any[]>([]);
+  const [groups, setGroups] = useState<any[]>([]);
+  const [studentGroupMap, setStudentGroupMap] = useState<Record<string, string[]>>({});
+  const [selectedGroupId, setSelectedGroupId] = useState<string>("all");
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "pending" | "approved" | "rejected">("pending");
   const [search, setSearch] = useState("");
@@ -4306,25 +4339,39 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
   const fetchSubmissions = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Get groups assigned to this moderator
-      const { data: myGroups } = await supabase
-        .from("groups")
-        .select("id")
-        .eq("moderator_id", user?.id);
+      // 1. Get groups — all if admin, only assigned if moderator
+      let groupsQuery = supabase.from("groups").select("id, name");
+      if (!isAdmin) {
+        groupsQuery = groupsQuery.eq("moderator_id", user?.id);
+      }
+      const { data: allGroups } = await groupsQuery;
+      const groupList = allGroups || [];
+      setGroups(groupList);
+      if (selectedGroupId !== "all" && !groupList.find((g: any) => g.id === selectedGroupId)) {
+        setSelectedGroupId("all");
+      }
 
-      const groupIds = myGroups?.map((g: any) => g.id) || [];
+      const groupIds = groupList.map((g: any) => g.id);
 
-      // 2. Get students in those groups
-      let studentIds: string[] = [];
+      // 2. Build student -> groups map
+      const map: Record<string, string[]> = {};
       if (groupIds.length > 0) {
         const { data: sgData } = await supabase
           .from("student_groups")
-          .select("student_id")
+          .select("student_id, group_id")
           .in("group_id", groupIds);
-        studentIds = sgData?.map((s: any) => s.student_id) || [];
+        if (sgData) {
+          for (const sg of sgData) {
+            if (!map[sg.student_id]) map[sg.student_id] = [];
+            map[sg.student_id].push(sg.group_id);
+          }
+        }
       }
+      setStudentGroupMap(map);
 
-      // 3. Fetch submissions — filter by student group if moderator has groups
+      const allStudentIds = Object.keys(map);
+
+      // 3. Fetch submissions
       let query = supabase
         .from("lecture_task_submissions")
         .select(`
@@ -4336,8 +4383,8 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
         `)
         .order("created_at", { ascending: false });
 
-      if (groupIds.length > 0 && studentIds.length > 0) {
-        query = query.in("student_id", studentIds);
+      if (groupIds.length > 0) {
+        query = query.in("student_id", allStudentIds.length > 0 ? allStudentIds : ["00000000-0000-0000-0000-000000000000"]);
       }
 
       const { data, error } = await query;
@@ -4348,12 +4395,16 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, isAdmin]);
 
   useEffect(() => { fetchSubmissions(); }, [fetchSubmissions]);
 
   const filtered = submissions.filter((s) => {
     if (filter !== "all" && s.status !== filter) return false;
+    if (selectedGroupId !== "all") {
+      const sg = studentGroupMap[s.student_id] || [];
+      if (!sg.includes(selectedGroupId)) return false;
+    }
     if (search) {
       const q = search.toLowerCase();
       const name = s.profiles?.username?.toLowerCase() || "";
@@ -4374,7 +4425,11 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
         p_grade: grade !== "" ? grade : null,
       });
       if (error) throw error;
-      toast.success(isAr ? "تمت الموافقة على المهمة" : "Assignment approved");
+      toast.success(
+        grade !== ""
+          ? (isAr ? `تمت الموافقة! +${grade} XP` : `Approved! +${grade} XP`)
+          : (isAr ? "تمت الموافقة على المهمة" : "Assignment approved")
+      );
       setSelectedSub(null);
       setFeedback("");
       setGrade("");
@@ -4429,7 +4484,11 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
     }
   };
 
-  const pendingCount = submissions.filter((s) => s.status === "pending").length;
+  const pendingCount = filtered.filter((s) => s.status === "pending").length;
+
+  const selectedGroupName = selectedGroupId === "all"
+    ? (isAr ? "كل المجموعات" : "All Groups")
+    : (groups.find((g: any) => g.id === selectedGroupId)?.name || "—");
 
   const statusColors: Record<string, string> = {
     pending: "bg-yellow-500/15 text-yellow-500",
@@ -4453,6 +4512,21 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
           <p className="text-xs text-muted-foreground mt-1">
             {pendingCount} {isAr ? "بانتظار المراجعة" : "pending review"}
           </p>
+        </div>
+        <div className="relative">
+          <select
+            value={selectedGroupId}
+            onChange={(e) => setSelectedGroupId(e.target.value)}
+            className="appearance-none bg-muted border border-border rounded-xl px-4 py-2 pr-10 text-xs font-bold uppercase tracking-wider outline-none focus:border-primary transition-all cursor-pointer"
+          >
+            {isAdmin && (
+              <option value="all">{isAr ? "كل المجموعات" : "All Groups"}</option>
+            )}
+            {groups.map((g: any) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+          <ChevronDown className="w-3.5 h-3.5 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground" />
         </div>
       </div>
 
@@ -4514,6 +4588,7 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
                 <span>{isAr ? "الدرس" : "Lesson"}: {sub.lecture_templates?.title || "—"}</span>
                 <span>{isAr ? "الدورة" : "Slot"}: #{sub.lecture_templates?.slot_number}</span>
                 <span>{isAr ? "التاريخ" : "Date"}: {new Date(sub.created_at).toLocaleDateString()}</span>
+                <span>{isAr ? "المجموعة" : "Group"}: {groups.find((g: any) => (studentGroupMap[sub.student_id] || []).includes(g.id))?.name || "—"}</span>
               </div>
             </motion.div>
           ))}
@@ -4558,7 +4633,7 @@ function AssignmentsHub({ isAr }: { isAr: boolean }) {
                   <p>{isAr ? "الدرس" : "Lesson"}: {selectedSub.lecture_templates?.title}</p>
                   <p>{isAr ? "المستوى" : "Level"}: {selectedSub.lecture_templates?.level_templates?.title}</p>
                   {selectedSub.lecture_templates?.assignment_description && (
-                    <p className="mt-2 p-3 bg-white/5 rounded-xl border border-white/10">{selectedSub.lectures.assignment_description}</p>
+                    <p className="mt-2 p-3 bg-white/5 rounded-xl border border-white/10">{selectedSub.lecture_templates?.assignment_description}</p>
                   )}
                 </div>
               </div>
