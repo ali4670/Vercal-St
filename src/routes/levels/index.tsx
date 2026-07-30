@@ -56,10 +56,12 @@ function LevelsPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (profile?.role === "parent") {
+    if (!user) {
+      navigate({ to: "/", replace: true });
+    } else if (profile?.role === "parent") {
       navigate({ to: "/parent-dashboard", replace: true });
     }
-  }, [profile, navigate]);
+  }, [user, profile, navigate]);
 
   const [levels, setLevels] = useState<Level[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
