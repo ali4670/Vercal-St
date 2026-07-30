@@ -30,7 +30,7 @@ interface GroupWithMod extends Group {
 
 export function GroupManager() {
   const { isAr } = useLanguage();
-  const { isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [groups, setGroups] = useState<GroupWithMod[]>([]);
   const [moderators, setModerators] = useState<Moderator[]>([]);
   const [levelTemplates, setLevelTemplates] = useState<LevelTemplate[]>([]);
@@ -104,6 +104,7 @@ export function GroupManager() {
     const { error } = await supabase.from("groups").insert({
       name: newGroupName.trim(),
       description: newGroupDesc.trim() || null,
+      created_by: user?.id || null,
     });
     setCreating(false);
     if (error) {

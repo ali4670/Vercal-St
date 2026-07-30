@@ -316,8 +316,11 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Combined level access check (Whitelist + Sequential)
-CREATE OR REPLACE FUNCTION has_level_access(l_id UUID)
+DROP FUNCTION IF EXISTS has_level_access(uuid) CASCADE;
+CREATE OR REPLACE FUNCTION has_level_access(l_id UUID, p_group_id UUID DEFAULT NULL)
 RETURNS BOOLEAN AS $$
+DECLARE
+    v_group_id UUID;
 BEGIN
     IF is_moderator() THEN RETURN TRUE; END IF;
 
@@ -325,7 +328,12 @@ BEGIN
       RETURN TRUE;
     END IF;
 
-    RETURN is_approved() AND can_student_access_level(auth.uid(), l_id);
+    v_group_id := p_group_id;
+    IF v_group_id IS NULL THEN
+        SELECT group_id INTO v_group_id FROM get_my_group_ids() LIMIT 1;
+    END IF;
+
+    RETURN is_approved() AND can_student_access_level(auth.uid(), l_id, v_group_id);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -350,7 +358,17 @@ CREATE OR REPLACE FUNCTION can_student_access_level(u_id UUID, target_level_id U
 
       SELECT COUNT(*) INTO lectures_count FROM lecture_templates WHERE level_template_id = prev_level_id AND is_live IS NOT FALSE;
 
-      v_effective_group_id := COALESCE(p_group_id, '00000000-0000-0000-0000-000000000000');
+      v_effective_group_id := p_group_id;
+      IF v_effective_group_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM groups WHERE id = v_effective_group_id) THEN
+        v_effective_group_id := NULL;
+      END IF;
+      IF v_effective_group_id IS NULL THEN
+        SELECT group_id INTO v_effective_group_id FROM get_my_group_ids() LIMIT 1;
+      END IF;
+      IF v_effective_group_id IS NULL THEN
+        v_effective_group_id := '00000000-0000-0000-0000-000000000000';
+      END IF;
+
       SELECT COUNT(*) INTO completed_count FROM student_progress
         JOIN lecture_templates ON student_progress.lecture_id = lecture_templates.id
         WHERE student_progress.student_id = u_id
@@ -362,6 +380,7 @@ CREATE OR REPLACE FUNCTION can_student_access_level(u_id UUID, target_level_id U
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Enforce sequential lecture access within a level
+DROP FUNCTION IF EXISTS can_access_lecture(uuid) CASCADE;
 CREATE OR REPLACE FUNCTION can_access_lecture(p_lecture_id UUID, p_group_id UUID DEFAULT NULL)
 RETURNS BOOLEAN AS $$
 DECLARE
@@ -377,7 +396,7 @@ BEGIN
 
     SELECT level_template_id, slot_number INTO v_level_template_id, v_slot_number FROM lecture_templates WHERE id = p_lecture_id;
 
-    IF NOT has_level_access(v_level_template_id) THEN RETURN FALSE; END IF;
+    IF NOT has_level_access(v_level_template_id, p_group_id) THEN RETURN FALSE; END IF;
 
     SELECT force_all_live INTO v_force_all_live FROM level_templates WHERE id = v_level_template_id;
     IF v_force_all_live THEN RETURN TRUE; END IF;
@@ -400,8 +419,17 @@ BEGIN
 
     IF v_slot_number = 1 THEN RETURN TRUE; END IF;
 
-    -- Use p_group_id if provided, otherwise match any group (sentinel or real)
-    v_effective_group_id := COALESCE(p_group_id, '00000000-0000-0000-0000-000000000000');
+    -- Resolve effective group_id
+    v_effective_group_id := p_group_id;
+    IF v_effective_group_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM groups WHERE id = v_effective_group_id) THEN
+      v_effective_group_id := NULL;
+    END IF;
+    IF v_effective_group_id IS NULL THEN
+      SELECT group_id INTO v_effective_group_id FROM get_my_group_ids() LIMIT 1;
+    END IF;
+    IF v_effective_group_id IS NULL THEN
+      v_effective_group_id := '00000000-0000-0000-0000-000000000000';
+    END IF;
 
     SELECT COUNT(*) INTO v_incomplete_count
     FROM lecture_templates lt
@@ -414,21 +442,59 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- Secure lecture completion
+-- Secure lecture completion (awards XP/score only once per lecture)
+DROP FUNCTION IF EXISTS complete_lecture_secure(uuid,uuid);
 CREATE OR REPLACE FUNCTION complete_lecture_secure(p_lecture_id UUID, p_group_id UUID DEFAULT NULL)
-RETURNS VOID AS $$
+RETURNS JSONB AS $$
 DECLARE
-    v_effective_group_id UUID;
+  v_student_id UUID;
+  v_effective_group_id UUID;
+  v_level_id UUID;
+  v_inserted BOOLEAN;
 BEGIN
-    IF NOT can_access_lecture(p_lecture_id, p_group_id) THEN
-      RAISE EXCEPTION 'Lecture locked or prerequisites not met.';
-    END IF;
+  v_student_id := auth.uid();
+  IF v_student_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Not authenticated');
+  END IF;
 
-    v_effective_group_id := COALESCE(p_group_id, '00000000-0000-0000-0000-000000000000');
+  IF NOT can_access_lecture(p_lecture_id, p_group_id) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Lecture locked or prerequisites not met.');
+  END IF;
 
-    INSERT INTO student_progress (student_id, lecture_id, group_id)
-    VALUES (auth.uid(), p_lecture_id, v_effective_group_id)
-    ON CONFLICT (student_id, lecture_id, group_id) DO NOTHING;
+  v_effective_group_id := p_group_id;
+
+  IF v_effective_group_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM groups WHERE id = v_effective_group_id) THEN
+    v_effective_group_id := NULL;
+  END IF;
+
+  IF v_effective_group_id IS NULL THEN
+    SELECT level_template_id INTO v_level_id FROM lecture_templates WHERE id = p_lecture_id;
+    SELECT gla.group_id INTO v_effective_group_id
+    FROM group_level_assignments gla
+    JOIN get_my_group_ids() g ON g.group_id = gla.group_id
+    WHERE gla.level_template_id = v_level_id
+    LIMIT 1;
+  END IF;
+
+  IF v_effective_group_id IS NULL THEN
+    v_effective_group_id := '00000000-0000-0000-0000-000000000000';
+  END IF;
+
+  INSERT INTO student_progress (student_id, lecture_id, group_id)
+  VALUES (v_student_id, p_lecture_id, v_effective_group_id)
+  ON CONFLICT (student_id, lecture_id, group_id) DO NOTHING;
+
+  GET DIAGNOSTICS v_inserted = ROW_COUNT;
+  v_inserted := (v_inserted > 0);
+
+  IF v_inserted THEN
+    UPDATE profiles SET
+      xp = COALESCE(xp, 0) + 50,
+      score = COALESCE(score, 0) + 10
+    WHERE id = v_student_id;
+  END IF;
+
+  RETURN jsonb_build_object('success', true, 'is_new', v_inserted);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -1998,6 +2064,98 @@ CREATE POLICY "System can insert notifications" ON notifications FOR INSERT WITH
 -- 6. TRIGGERS — Auto-Notifications
 -- =============================================================
 
+-- Helper: get all admin user IDs
+CREATE OR REPLACE FUNCTION get_admin_ids()
+RETURNS UUID[] AS $$
+DECLARE
+    v_admin_ids UUID[];
+BEGIN
+    SELECT array_agg(id) INTO v_admin_ids
+    FROM profiles
+    WHERE role = 'admin';
+    RETURN COALESCE(v_admin_ids, ARRAY[]::UUID[]);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Notify admins when a new group is created (includes who created it)
+CREATE OR REPLACE FUNCTION notify_admins_new_group()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_admin_id UUID;
+    v_creator TEXT;
+BEGIN
+    SELECT username INTO v_creator FROM profiles WHERE id = NEW.created_by;
+    FOR v_admin_id IN SELECT unnest(get_admin_ids())
+    LOOP
+        INSERT INTO notifications (user_id, title, message, type, link)
+        VALUES (
+            v_admin_id,
+            'New Group Created',
+            COALESCE(v_creator, 'A moderator') || ' created a new group "' || COALESCE(NEW.name, 'Untitled') || '".',
+            'info',
+            '/moderator'
+        );
+    END LOOP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_notify_admins_new_group ON groups;
+CREATE TRIGGER trg_notify_admins_new_group
+    AFTER INSERT ON groups
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_admins_new_group();
+
+-- Notify admins and group moderator when a student submits an assignment
+CREATE OR REPLACE FUNCTION notify_admins_of_assignment_submission()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_admin_id UUID;
+    v_student_name TEXT;
+    v_lecture_title TEXT;
+    v_group_moderator_id UUID;
+    v_moderator_name TEXT;
+BEGIN
+    SELECT username INTO v_student_name FROM profiles WHERE id = NEW.student_id;
+    SELECT title INTO v_lecture_title FROM lecture_templates WHERE id = NEW.lecture_id;
+
+    FOR v_admin_id IN SELECT unnest(get_admin_ids())
+    LOOP
+        INSERT INTO notifications (user_id, title, message, type, link)
+        VALUES (
+            v_admin_id,
+            'Assignment Submitted',
+            COALESCE(v_student_name, 'A student') || ' submitted an assignment for "' || COALESCE(v_lecture_title, 'Unknown') || '".',
+            'info',
+            '/moderator'
+        );
+    END LOOP;
+
+    IF NEW.group_id IS NOT NULL THEN
+        SELECT moderator_id INTO v_group_moderator_id FROM groups WHERE id = NEW.group_id;
+        IF v_group_moderator_id IS NOT NULL THEN
+            SELECT username INTO v_moderator_name FROM profiles WHERE id = v_group_moderator_id;
+            INSERT INTO notifications (user_id, title, message, type, link)
+            VALUES (
+                v_group_moderator_id,
+                'Assignment Submitted',
+                COALESCE(v_student_name, 'A student') || ' submitted an assignment for "' || COALESCE(v_lecture_title, 'Unknown') || '" in your group.',
+                'info',
+                '/moderator'
+            );
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_notify_admins_assignment_submission ON lecture_task_submissions;
+CREATE TRIGGER trg_notify_admins_assignment_submission
+    AFTER INSERT ON lecture_task_submissions
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_admins_of_assignment_submission();
+
 DROP TRIGGER IF EXISTS trg_notify_parent_activity ON student_activity_log;
 CREATE TRIGGER trg_notify_parent_activity
     AFTER INSERT ON student_activity_log
@@ -2393,11 +2551,13 @@ CREATE TABLE IF NOT EXISTS groups (
     name TEXT UNIQUE NOT NULL,
     description TEXT,
     moderator_id UUID REFERENCES profiles(id) ON DELETE SET NULL,
+    created_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
 );
--- If groups table already existed without moderator_id, add it
+-- If groups table already existed without moderator_id/created_by, add them
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS moderator_id UUID REFERENCES profiles(id) ON DELETE SET NULL;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES profiles(id) ON DELETE SET NULL;
 ALTER TABLE profiles ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES groups(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_profiles_group ON profiles(group_id) WHERE group_id IS NOT NULL;
 
@@ -2792,6 +2952,11 @@ ALTER PUBLICATION supabase_realtime ADD TABLE group_messages;
 -- =============================================================
 -- 12. GROUP-SCOPED PROGRESS, EXAMS & SUBMISSIONS
 -- =============================================================
+
+-- Ensure sentinel group exists for legacy rows before FK is added
+INSERT INTO groups (id, name, description, is_active)
+VALUES ('00000000-0000-0000-0000-000000000000', 'Legacy', 'Sentinel group for legacy data before group-scoping', false)
+ON CONFLICT (id) DO NOTHING;
 
 -- FK: student_progress.group_id -> groups(id)
 ALTER TABLE student_progress DROP CONSTRAINT IF EXISTS fk_student_progress_group;

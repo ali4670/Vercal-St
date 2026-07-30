@@ -3,8 +3,9 @@
 -- Notifies all admin users when:
 --   1. A new user registers
 --   2. A moderator creates a new level template
---   3. A new group is created
+--   3. A new group is created (includes who created it)
 --   4. A new direct message is sent
+--   5. A student submits an assignment (also notifies group moderator)
 -- =============================================================
 
 -- Helper: get all admin user IDs
@@ -81,14 +82,16 @@ CREATE OR REPLACE FUNCTION notify_admins_new_group()
 RETURNS TRIGGER AS $$
 DECLARE
     v_admin_id UUID;
+    v_creator TEXT;
 BEGIN
+    SELECT username INTO v_creator FROM profiles WHERE id = NEW.created_by;
     FOR v_admin_id IN SELECT unnest(get_admin_ids())
     LOOP
         INSERT INTO notifications (user_id, title, message, type, link)
         VALUES (
             v_admin_id,
             'New Group Created',
-            'A new group "' || COALESCE(NEW.name, 'Untitled') || '" has been created.',
+            COALESCE(v_creator, 'A moderator') || ' created a new group "' || COALESCE(NEW.name, 'Untitled') || '".',
             'info',
             '/moderator'
         );
@@ -151,3 +154,51 @@ CREATE TRIGGER trg_notify_admins_group_message
     AFTER INSERT ON group_messages
     FOR EACH ROW
     EXECUTE FUNCTION notify_admins_new_message();
+
+-- 5. Notify admins and group moderator when a student submits an assignment
+CREATE OR REPLACE FUNCTION notify_admins_of_assignment_submission()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_admin_id UUID;
+    v_student_name TEXT;
+    v_lecture_title TEXT;
+    v_group_moderator_id UUID;
+BEGIN
+    SELECT username INTO v_student_name FROM profiles WHERE id = NEW.student_id;
+    SELECT title INTO v_lecture_title FROM lecture_templates WHERE id = NEW.lecture_id;
+
+    FOR v_admin_id IN SELECT unnest(get_admin_ids())
+    LOOP
+        INSERT INTO notifications (user_id, title, message, type, link)
+        VALUES (
+            v_admin_id,
+            'Assignment Submitted',
+            COALESCE(v_student_name, 'A student') || ' submitted an assignment for "' || COALESCE(v_lecture_title, 'Unknown') || '".',
+            'info',
+            '/moderator'
+        );
+    END LOOP;
+
+    IF NEW.group_id IS NOT NULL THEN
+        SELECT moderator_id INTO v_group_moderator_id FROM groups WHERE id = NEW.group_id;
+        IF v_group_moderator_id IS NOT NULL THEN
+            INSERT INTO notifications (user_id, title, message, type, link)
+            VALUES (
+                v_group_moderator_id,
+                'Assignment Submitted',
+                COALESCE(v_student_name, 'A student') || ' submitted an assignment for "' || COALESCE(v_lecture_title, 'Unknown') || '" in your group.',
+                'info',
+                '/moderator'
+            );
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_notify_admins_assignment_submission ON lecture_task_submissions;
+CREATE TRIGGER trg_notify_admins_assignment_submission
+    AFTER INSERT ON lecture_task_submissions
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_admins_of_assignment_submission();

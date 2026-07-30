@@ -747,6 +747,15 @@ function LecturePage() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    if (!user) return;
+    const key = `refreshed_lecture_${lectureId}`;
+    if (!sessionStorage.getItem(key)) {
+      sessionStorage.setItem(key, "1");
+      window.location.reload();
+    }
+  }, [lectureId, user]);
+
+  useEffect(() => {
     if (profile?.role === "parent") {
       navigate({ to: "/parent-dashboard", replace: true });
     }
@@ -1178,20 +1187,19 @@ function LecturePage() {
   const handleComplete = async () => {
     setIsSubmitting(true);
     try {
-      const { error: rpcError } = await supabase.rpc("complete_lecture_secure", {
+      const { data, error: rpcError } = await supabase.rpc("complete_lecture_secure", {
         p_lecture_id: lectureId,
         p_group_id: groupId,
       });
       if (rpcError) throw rpcError;
 
-      await supabase.from("profiles").update({
-        xp: (profile?.xp || 0) + 50,
-        score: (profile?.score || 0) + 10,
-      }).eq("id", user?.id);
-
       setIsCompleted(true);
       refreshProfile();
-      toast.success(isAr ? "تم إكمال المهمة! +50 XP" : "Mission accomplished! +50 XP");
+      if (data?.is_new) {
+        toast.success(isAr ? "تم إكمال المهمة! +50 XP" : "Mission accomplished! +50 XP");
+      } else {
+        toast.success(isAr ? "تم إكمال المهمة" : "Mission accomplished");
+      }
     } catch (err: any) {
       toast.error(err.message);
     } finally {
