@@ -43,6 +43,18 @@
       "skillPath": "tools/video/remotion-render/SKILL.md",
       "computedHash": "9a00df8ceabf3033451cf0c4d41cdda5f38024822de07ea69884055611064ffe"
     },
+    "sql-code-review": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/sql-code-review/SKILL.md",
+      "computedHash": "ae157a0eeaa4c4712e850e85d71d25f2a53168f94011f3a08b888424f41220ee"
+    },
+    "sql-optimization": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/sql-optimization/SKILL.md",
+      "computedHash": "47c930907f25d67454ac8c2d155785eae3dce72242960d0c0e9ebf2ced9cd231"
+    },
     "taste-design": {
       "source": "google-labs-code/stitch-skills",
       "sourceType": "github",

@@ -450,6 +450,7 @@ DECLARE
   v_student_id UUID;
   v_effective_group_id UUID;
   v_level_id UUID;
+  v_row_count INTEGER;
   v_inserted BOOLEAN;
 BEGIN
   v_student_id := auth.uid();
@@ -471,7 +472,7 @@ BEGIN
     SELECT level_template_id INTO v_level_id FROM lecture_templates WHERE id = p_lecture_id;
     SELECT gla.group_id INTO v_effective_group_id
     FROM group_level_assignments gla
-    JOIN get_my_group_ids() g ON g.group_id = gla.group_id
+    JOIN get_my_group_ids() g ON g = gla.group_id
     WHERE gla.level_template_id = v_level_id
     LIMIT 1;
   END IF;
@@ -484,8 +485,8 @@ BEGIN
   VALUES (v_student_id, p_lecture_id, v_effective_group_id)
   ON CONFLICT (student_id, lecture_id, group_id) DO NOTHING;
 
-  GET DIAGNOSTICS v_inserted = ROW_COUNT;
-  v_inserted := (v_inserted > 0);
+  GET DIAGNOSTICS v_row_count = ROW_COUNT;
+  v_inserted := v_row_count > 0;
 
   IF v_inserted THEN
     UPDATE profiles SET
@@ -866,154 +867,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now())
 );
 
--- 5. Function: check if student can access next lecture (assignment gate)
-CREATE OR REPLACE FUNCTION can_access_next_lecture(p_current_lecture_id UUID, p_student_id UUID, p_group_id UUID DEFAULT NULL)
-RETURNS BOOLEAN AS $$
-DECLARE
-    v_next_lecture_id UUID;
-    v_next_assignment_required BOOLEAN;
-    v_submission_status TEXT;
-    v_has_override BOOLEAN;
-BEGIN
-    SELECT lt2.id INTO v_next_lecture_id
-    FROM lecture_templates lt1
-    JOIN lecture_templates lt2 ON lt1.level_template_id = lt2.level_template_id AND lt2.slot_number = lt1.slot_number + 1
-    WHERE lt1.id = p_current_lecture_id;
 
-    IF v_next_lecture_id IS NULL THEN
-        RETURN TRUE;
-    END IF;
-
-    SELECT assignment_required INTO v_next_assignment_required
-    FROM lecture_templates WHERE id = v_next_lecture_id;
-
-    IF NOT v_next_assignment_required THEN
-        RETURN TRUE;
-    END IF;
-
-    SELECT EXISTS(
-        SELECT 1 FROM assignment_overrides
-        WHERE student_id = p_student_id AND lecture_id = v_next_lecture_id
-    ) INTO v_has_override;
-
-    IF v_has_override THEN
-        RETURN TRUE;
-    END IF;
-
-    IF p_group_id IS NOT NULL THEN
-      SELECT status INTO v_submission_status
-      FROM lecture_task_submissions
-      WHERE student_id = p_student_id AND lecture_id = p_current_lecture_id AND group_id = p_group_id;
-    ELSE
-      SELECT status INTO v_submission_status
-      FROM lecture_task_submissions
-      WHERE student_id = p_student_id AND lecture_id = p_current_lecture_id;
-    END IF;
-
-    RETURN v_submission_status = 'approved';
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 6. Function: approve assignment and unlock next
-CREATE OR REPLACE FUNCTION approve_assignment(
-    p_submission_id UUID,
-    p_moderator_id UUID,
-    p_feedback TEXT DEFAULT NULL,
-    p_grade INTEGER DEFAULT NULL
-) RETURNS VOID AS $$
-DECLARE
-    v_student_id UUID;
-    v_lecture_id UUID;
-    v_prev_status TEXT;
-    v_current_xp INTEGER;
-BEGIN
-    -- Check previous status to avoid double-XP
-    SELECT status, student_id, lecture_id INTO v_prev_status, v_student_id, v_lecture_id
-    FROM lecture_task_submissions WHERE id = p_submission_id;
-
-    UPDATE lecture_task_submissions
-    SET status = 'approved',
-        feedback = p_feedback,
-        grade = p_grade,
-        graded_by = p_moderator_id,
-        graded_at = timezone('utc'::text, now()),
-        updated_at = timezone('utc'::text, now())
-    WHERE id = p_submission_id;
-
-    -- Award XP based on grade (only once — skip if already approved)
-    IF p_grade IS NOT NULL AND v_prev_status != 'approved' THEN
-        SELECT COALESCE(xp, 0) INTO v_current_xp FROM profiles WHERE id = v_student_id;
-        UPDATE profiles SET xp = v_current_xp + p_grade WHERE id = v_student_id;
-    END IF;
-
-    INSERT INTO notifications (user_id, title, message, type, link)
-    VALUES (
-        v_student_id,
-        'Assignment Approved',
-        'Your assignment has been approved! You can now access the next lesson.',
-        'success',
-        '/lecture/' || v_lecture_id
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 7. Function: reject assignment
-CREATE OR REPLACE FUNCTION reject_assignment(
-    p_submission_id UUID,
-    p_moderator_id UUID,
-    p_feedback TEXT DEFAULT NULL,
-    p_grade INTEGER DEFAULT NULL
-) RETURNS VOID AS $$
-DECLARE
-    v_student_id UUID;
-    v_lecture_id UUID;
-BEGIN
-    UPDATE lecture_task_submissions
-    SET status = 'rejected',
-        feedback = p_feedback,
-        grade = p_grade,
-        graded_by = p_moderator_id,
-        graded_at = timezone('utc'::text, now()),
-        updated_at = timezone('utc'::text, now())
-    WHERE id = p_submission_id
-    RETURNING student_id, lecture_id INTO v_student_id, v_lecture_id;
-
-    INSERT INTO notifications (user_id, title, message, type, link)
-    VALUES (
-        v_student_id,
-        'Assignment Needs Revision',
-        COALESCE(p_feedback, 'Your assignment needs revision. Please review the feedback and resubmit.'),
-        'warning',
-        '/lecture/' || v_lecture_id
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 8. Function: manual override (grant access)
-CREATE OR REPLACE FUNCTION grant_lecture_access(
-    p_student_id UUID,
-    p_lecture_id UUID,
-    p_moderator_id UUID,
-    p_reason TEXT DEFAULT NULL
-) RETURNS VOID AS $$
-BEGIN
-    INSERT INTO assignment_overrides (student_id, lecture_id, moderator_id, reason)
-    VALUES (p_student_id, p_lecture_id, p_moderator_id, p_reason)
-    ON CONFLICT (student_id, lecture_id) DO UPDATE SET
-        moderator_id = p_moderator_id,
-        reason = p_reason,
-        created_at = timezone('utc'::text, now());
-
-    INSERT INTO notifications (user_id, title, message, type, link)
-    VALUES (
-        p_student_id,
-        'Access Granted',
-        COALESCE(p_reason, 'A moderator has granted you access to the next lesson.'),
-        'info',
-        '/lecture/' || p_lecture_id
-    );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- 9. Indexes
 CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON lecture_task_submissions(status);
@@ -1406,25 +1260,25 @@ BEGIN
         lv.id,
         lv.title,
         lv.level_order,
-        (SELECT COUNT(*) FROM lecture_templates l WHERE l.level_template_id = lv.id AND l.is_live IS NOT FALSE)::BIGINT,
-        (SELECT COUNT(*) FROM lecture_templates l
-         JOIN student_progress sp ON l.id = sp.lecture_id
-         WHERE l.level_template_id = lv.id AND sp.student_id = p_student_id)::BIGINT,
+        COALESCE(lct.total, 0)::BIGINT,
+        COALESCE(lcp.completed, 0)::BIGINT,
         CASE
-            WHEN (SELECT COUNT(*) FROM lecture_templates l WHERE l.level_template_id = lv.id AND l.is_live IS NOT FALSE) = 0 THEN 0
-            ELSE ROUND(
-                (SELECT COUNT(*)::NUMERIC FROM lecture_templates l
-                 JOIN student_progress sp ON l.id = sp.lecture_id
-                 WHERE l.level_template_id = lv.id AND sp.student_id = p_student_id)
-                * 100.0
-                / (SELECT COUNT(*) FROM lecture_templates l WHERE l.level_template_id = lv.id AND l.is_live IS NOT FALSE)
-            , 1)
+            WHEN COALESCE(lct.total, 0) = 0 THEN 0
+            ELSE ROUND(COALESCE(lcp.completed, 0)::NUMERIC * 100.0 / lct.total, 1)
         END,
-        (SELECT MAX(sp.completed_at) FROM student_progress sp
-         JOIN lecture_templates l ON sp.lecture_id = l.id
-         WHERE l.level_template_id = lv.id AND sp.student_id = p_student_id),
+        lcp.last_completed,
         EXISTS(SELECT 1 FROM level_access la WHERE la.user_id = p_student_id AND la.level_id = lv.id)
     FROM level_templates lv
+    LEFT JOIN LATERAL (
+        SELECT COUNT(*) AS total FROM lecture_templates l
+        WHERE l.level_template_id = lv.id AND l.is_live IS NOT FALSE
+    ) lct ON true
+    LEFT JOIN LATERAL (
+        SELECT COUNT(*) AS completed, MAX(sp.completed_at) AS last_completed
+        FROM lecture_templates l
+        JOIN student_progress sp ON sp.lecture_id = l.id AND sp.student_id = p_student_id
+        WHERE l.level_template_id = lv.id AND l.is_live IS NOT FALSE
+    ) lcp ON true
     WHERE lv.is_published = true
     ORDER BY lv.level_order;
 END;
@@ -1451,20 +1305,26 @@ BEGIN
         l.id,
         l.title,
         l.slot_number,
-        EXISTS(SELECT 1 FROM student_progress sp WHERE sp.student_id = p_student_id AND sp.lecture_id = l.id),
-        (SELECT sp.completed_at FROM student_progress sp WHERE sp.student_id = p_student_id AND sp.lecture_id = l.id),
+        sp.lecture_id IS NOT NULL,
+        sp.completed_at,
         COALESCE(l.assignment_required, false),
-        COALESCE((SELECT lts.status FROM lecture_task_submissions lts WHERE lts.student_id = p_student_id AND lts.lecture_id = l.id), 'not_submitted'),
-        (SELECT lts.grade FROM lecture_task_submissions lts WHERE lts.student_id = p_student_id AND lts.lecture_id = l.id),
-        (SELECT lts.feedback FROM lecture_task_submissions lts WHERE lts.student_id = p_student_id AND lts.lecture_id = l.id),
+        COALESCE(lts.status, 'not_submitted'),
+        lts.grade,
+        lts.feedback,
         EXISTS(SELECT 1 FROM quiz_attempts qa WHERE qa.student_id = p_student_id AND qa.lecture_id = l.id AND qa.is_passed = true),
         NOT can_access_lecture(l.id),
         CASE
-            WHEN NOT has_level_access(l.level_id) THEN 'Level not unlocked'
+            WHEN NOT has_level_access(l.level_template_id) THEN 'Level not unlocked'
             WHEN NOT can_access_lecture(l.id) THEN 'Previous lesson incomplete or drip period'
             ELSE NULL
         END
     FROM lecture_templates l
+    LEFT JOIN student_progress sp ON sp.student_id = p_student_id AND sp.lecture_id = l.id
+    LEFT JOIN LATERAL (
+        SELECT status, grade, feedback FROM lecture_task_submissions
+        WHERE student_id = p_student_id AND lecture_id = l.id
+        LIMIT 1
+    ) lts ON true
     WHERE l.level_template_id = p_level_id
     ORDER BY l.slot_number;
 END;
@@ -1504,16 +1364,20 @@ BEGIN
         COALESCE(lts.status, 'pending'),
         lts.feedback,
         lts.grade,
-        (SELECT p.username FROM profiles p WHERE p.id = lts.graded_by),
+        pg.username,
         lts.created_at,
         lts.updated_at,
         lts.graded_at,
         l.description,
-        (SELECT COUNT(*) FROM lecture_task_submissions lts2
-         WHERE lts2.student_id = p_student_id AND lts2.lecture_id = l.id)
+        ics.cnt
     FROM lecture_task_submissions lts
     JOIN lecture_templates l ON lts.lecture_id = l.id
     JOIN level_templates lv ON l.level_template_id = lv.id
+    LEFT JOIN profiles pg ON pg.id = lts.graded_by
+    LEFT JOIN LATERAL (
+        SELECT COUNT(*)::BIGINT AS cnt FROM lecture_task_submissions lts2
+        WHERE lts2.student_id = p_student_id AND lts2.lecture_id = l.id
+    ) ics ON true
     WHERE lts.student_id = p_student_id
     ORDER BY lts.created_at DESC;
 END;
@@ -2043,23 +1907,6 @@ CREATE POLICY "Students view own milestones" ON learning_milestones FOR SELECT U
 DROP POLICY IF EXISTS "System insert milestones" ON learning_milestones;
 CREATE POLICY "System insert milestones" ON learning_milestones FOR INSERT WITH CHECK (true);
 
--- Assignment Overrides
-ALTER TABLE assignment_overrides ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Moderators can manage overrides" ON assignment_overrides;
-CREATE POLICY "Moderators can manage overrides" ON assignment_overrides FOR ALL USING (is_moderator());
-DROP POLICY IF EXISTS "Students can view own overrides" ON assignment_overrides;
-CREATE POLICY "Students can view own overrides" ON assignment_overrides FOR SELECT USING (auth.uid() = student_id);
-
--- Notifications
-ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can view own notifications" ON notifications;
-CREATE POLICY "Users can view own notifications" ON notifications FOR SELECT USING (auth.uid() = user_id);
-DROP POLICY IF EXISTS "Users can update own notifications" ON notifications;
-CREATE POLICY "Users can update own notifications" ON notifications FOR UPDATE USING (auth.uid() = user_id);
-DROP POLICY IF EXISTS "System can insert notifications" ON notifications;
-CREATE POLICY "System can insert notifications" ON notifications FOR INSERT WITH CHECK (true);
-
-
 -- =============================================================
 -- 6. TRIGGERS — Auto-Notifications
 -- =============================================================
@@ -2162,71 +2009,116 @@ CREATE TRIGGER trg_notify_parent_activity
     FOR EACH ROW
     EXECUTE FUNCTION notify_parent_of_student_event();
 
--- 3m. Auto-notify parent when assignment is graded
-CREATE OR REPLACE FUNCTION notify_parent_of_grade()
+-- Notify admins when a new user registers
+CREATE OR REPLACE FUNCTION notify_admins_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
-    v_parent_id UUID;
-    v_student_name TEXT;
-    v_lecture_title TEXT;
+    v_admin_id UUID;
 BEGIN
-    IF NEW.status IS DISTINCT FROM OLD.status AND NEW.status IN ('approved', 'rejected') THEN
-        FOR v_parent_id IN
-            SELECT psl.parent_id FROM parent_student_links psl WHERE psl.student_id = NEW.student_id
-        LOOP
-            SELECT username INTO v_student_name FROM profiles WHERE id = NEW.student_id;
-            SELECT title INTO v_lecture_title FROM lecture_templates WHERE id = NEW.lecture_id;
-
-            INSERT INTO notifications (user_id, title, message, type, link)
-            VALUES (
-                v_parent_id,
-                CASE WHEN NEW.status = 'approved' THEN 'Assignment Approved' ELSE 'Assignment Needs Revision' END,
-                v_student_name || '''s assignment for "' || COALESCE(v_lecture_title, 'Unknown') || '" was ' || NEW.status || '.',
-                CASE WHEN NEW.status = 'approved' THEN 'success' ELSE 'warning' END,
-                '/parent-dashboard'
-            );
-        END LOOP;
-    END IF;
-
+    FOR v_admin_id IN SELECT unnest(get_admin_ids())
+    LOOP
+        INSERT INTO notifications (user_id, title, message, type, link)
+        VALUES (
+            v_admin_id,
+            'New User Registered',
+            COALESCE(NEW.username, 'A new user') || ' has joined the platform.',
+            'info',
+            '/moderator'
+        );
+    END LOOP;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
+DROP TRIGGER IF EXISTS trg_notify_admins_new_user ON profiles;
+CREATE TRIGGER trg_notify_admins_new_user
+    AFTER INSERT ON profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_admins_new_user();
+
+-- Notify admins when a new level template is created
+CREATE OR REPLACE FUNCTION notify_admins_new_level()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_admin_id UUID;
+    v_creator TEXT;
+BEGIN
+    SELECT username INTO v_creator FROM profiles WHERE id = NEW.created_by;
+    FOR v_admin_id IN SELECT unnest(get_admin_ids())
+    LOOP
+        INSERT INTO notifications (user_id, title, message, type, link)
+        VALUES (
+            v_admin_id,
+            'New Level Created',
+            COALESCE(v_creator, 'A moderator') || ' created a new level: "' || COALESCE(NEW.title, 'Untitled') || '".',
+            'info',
+            '/moderator'
+        );
+    END LOOP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_notify_admins_new_level ON level_templates;
+CREATE TRIGGER trg_notify_admins_new_level
+    AFTER INSERT ON level_templates
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_admins_new_level();
+
+-- Notify admins when a new message is sent (direct, level_chat, or group)
+CREATE OR REPLACE FUNCTION notify_admins_new_message()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_admin_id UUID;
+    v_sender TEXT;
+    v_is_admin BOOLEAN;
+BEGIN
+    SELECT role = 'admin', username INTO v_is_admin, v_sender
+    FROM profiles WHERE id = NEW.sender_id;
+
+    IF v_is_admin THEN
+        RETURN NEW;
+    END IF;
+
+    FOR v_admin_id IN SELECT unnest(get_admin_ids())
+    LOOP
+        INSERT INTO notifications (user_id, title, message, type, link)
+        VALUES (
+            v_admin_id,
+            'New Message',
+            COALESCE(v_sender, 'Someone') || ' sent a new message.',
+            'message',
+            '/moderator'
+        );
+    END LOOP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_notify_admins_direct_message ON direct_messages;
+CREATE TRIGGER trg_notify_admins_direct_message
+    AFTER INSERT ON direct_messages
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_admins_new_message();
+
+DROP TRIGGER IF EXISTS trg_notify_admins_level_chat ON level_chats;
+CREATE TRIGGER trg_notify_admins_level_chat
+    AFTER INSERT ON level_chats
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_admins_new_message();
+
+DROP TRIGGER IF EXISTS trg_notify_admins_group_message ON group_messages;
+CREATE TRIGGER trg_notify_admins_group_message
+    AFTER INSERT ON group_messages
+    FOR EACH ROW
+    EXECUTE FUNCTION notify_admins_new_message();
+
+-- Missing parent notification triggers
 DROP TRIGGER IF EXISTS trg_notify_parent_grade ON lecture_task_submissions;
 CREATE TRIGGER trg_notify_parent_grade
     AFTER UPDATE ON lecture_task_submissions
     FOR EACH ROW
     EXECUTE FUNCTION notify_parent_of_grade();
-
--- 3n. Auto-notify parent when exam is graded
-CREATE OR REPLACE FUNCTION notify_parent_of_exam_grade()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_parent_id UUID;
-    v_student_name TEXT;
-    v_lecture_title TEXT;
-BEGIN
-    IF NEW.total_grade IS NOT NULL AND (OLD.total_grade IS NULL OR OLD.total_grade IS DISTINCT FROM NEW.total_grade) THEN
-        FOR v_parent_id IN
-            SELECT psl.parent_id FROM parent_student_links psl WHERE psl.student_id = NEW.student_id
-        LOOP
-            SELECT username INTO v_student_name FROM profiles WHERE id = NEW.student_id;
-            SELECT title INTO v_lecture_title FROM lecture_templates WHERE id = NEW.lecture_id;
-
-            INSERT INTO notifications (user_id, title, message, type, link)
-            VALUES (
-                v_parent_id,
-                'Exam Graded',
-                v_student_name || '''s exam for "' || COALESCE(v_lecture_title, 'Unknown') || '" was graded: ' || NEW.total_grade || '%',
-                'info',
-                '/parent-dashboard'
-            );
-        END LOOP;
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS trg_notify_parent_exam_grade ON exam_submissions;
 CREATE TRIGGER trg_notify_parent_exam_grade
@@ -2234,84 +2126,11 @@ CREATE TRIGGER trg_notify_parent_exam_grade
     FOR EACH ROW
     EXECUTE FUNCTION notify_parent_of_exam_grade();
 
--- 3o. Auto-notify parent when moderator leaves feedback
-CREATE OR REPLACE FUNCTION notify_parent_of_moderator_feedback()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_parent_id UUID;
-    v_student_name TEXT;
-BEGIN
-    IF NEW.content IS DISTINCT FROM OLD.content OR NEW.id = OLD.id THEN
-        FOR v_parent_id IN
-            SELECT psl.parent_id FROM parent_student_links psl WHERE psl.student_id = NEW.student_id
-        LOOP
-            SELECT username INTO v_student_name FROM profiles WHERE id = NEW.student_id;
-
-            INSERT INTO notifications (user_id, title, message, type, link)
-            VALUES (
-                v_parent_id,
-                'New Moderator Note',
-                'A moderator left feedback for ' || v_student_name || '.',
-                'info',
-                '/parent-dashboard'
-            );
-        END LOOP;
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
 DROP TRIGGER IF EXISTS trg_notify_parent_note ON moderator_notes;
 CREATE TRIGGER trg_notify_parent_note
     AFTER INSERT ON moderator_notes
     FOR EACH ROW
     EXECUTE FUNCTION notify_parent_of_moderator_feedback();
-
--- 3p. Auto-notify parent when student completes level
-CREATE OR REPLACE FUNCTION notify_parent_of_level_complete()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_parent_id UUID;
-    v_student_name TEXT;
-    v_level_title TEXT;
-    v_total_lectures BIGINT;
-    v_completed_lectures BIGINT;
-    v_level_id UUID;
-BEGIN
-    SELECT l.level_template_id INTO v_level_id FROM lecture_templates l WHERE l.id = NEW.lecture_id;
-
-    SELECT COUNT(*) INTO v_total_lectures FROM lecture_templates WHERE level_template_id = v_level_id;
-    SELECT COUNT(*) INTO v_completed_lectures
-    FROM student_progress sp
-    JOIN lecture_templates l ON sp.lecture_id = l.id
-    WHERE sp.student_id = NEW.student_id AND l.level_template_id = v_level_id;
-
-    IF v_completed_lectures >= v_total_lectures AND v_total_lectures > 0 THEN
-        SELECT title INTO v_level_title FROM level_templates WHERE id = v_level_id;
-
-        FOR v_parent_id IN
-            SELECT psl.parent_id FROM parent_student_links psl WHERE psl.student_id = NEW.student_id
-        LOOP
-            SELECT username INTO v_student_name FROM profiles WHERE id = NEW.student_id;
-
-            INSERT INTO notifications (user_id, title, message, type, link)
-            VALUES (
-                v_parent_id,
-                'Level Completed!',
-                v_student_name || ' completed level "' || COALESCE(v_level_title, 'Unknown') || '"!',
-                'success',
-                '/parent-dashboard'
-            );
-
-            INSERT INTO learning_milestones (student_id, milestone_type, title, description, icon)
-            VALUES (NEW.student_id, 'level_complete', 'Level Complete: ' || COALESCE(v_level_title, ''), v_student_name || ' completed all lessons in level ' || COALESCE(v_level_title, ''), '🏆');
-        END LOOP;
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS trg_notify_parent_level_complete ON student_progress;
 CREATE TRIGGER trg_notify_parent_level_complete
@@ -2323,174 +2142,6 @@ CREATE TRIGGER trg_notify_parent_level_complete
 -- 4. INDEXES
 -- =============================================================
 
-CREATE INDEX IF NOT EXISTS idx_activity_student ON student_activity_log(student_id);
-CREATE INDEX IF NOT EXISTS idx_activity_type ON student_activity_log(activity_type);
-CREATE INDEX IF NOT EXISTS idx_activity_created ON student_activity_log(created_at);
-CREATE INDEX IF NOT EXISTS idx_study_sessions_student ON study_sessions(student_id);
-CREATE INDEX IF NOT EXISTS idx_calendar_student ON calendar_events(student_id);
-CREATE INDEX IF NOT EXISTS idx_calendar_date ON calendar_events(starts_at);
-CREATE INDEX IF NOT EXISTS idx_student_files_student ON student_files(student_id);
-CREATE INDEX IF NOT EXISTS idx_pm_threads_parent ON parent_moderator_threads(parent_id);
-CREATE INDEX IF NOT EXISTS idx_pm_threads_moderator ON parent_moderator_threads(moderator_id);
-CREATE INDEX IF NOT EXISTS idx_pm_messages_thread ON parent_moderator_messages(thread_id);
-CREATE INDEX IF NOT EXISTS idx_pm_messages_read ON parent_moderator_messages(thread_id, is_read);
-CREATE INDEX IF NOT EXISTS idx_grade_history_student ON grade_history(student_id);
-CREATE INDEX IF NOT EXISTS idx_milestones_student ON learning_milestones(student_id);
-CREATE INDEX IF NOT EXISTS idx_notifications_parent ON notifications(user_id, created_at DESC);
-
--- =============================================================
--- 5. RLS POLICIES
--- =============================================================
-
--- student_activity_log
-ALTER TABLE student_activity_log ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Parents view child activity" ON student_activity_log;
-CREATE POLICY "Parents view child activity" ON student_activity_log FOR SELECT USING (
-    EXISTS (SELECT 1 FROM parent_student_links WHERE parent_id = auth.uid() AND student_id = student_activity_log.student_id)
-);
-DROP POLICY IF EXISTS "Students insert own activity" ON student_activity_log;
-CREATE POLICY "Students insert own activity" ON student_activity_log FOR INSERT WITH CHECK (auth.uid() = student_id);
-DROP POLICY IF EXISTS "Moderators view all activity" ON student_activity_log;
-CREATE POLICY "Moderators view all activity" ON student_activity_log FOR SELECT USING (is_moderator());
-
--- study_sessions
-ALTER TABLE study_sessions ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Parents view child sessions" ON study_sessions;
-CREATE POLICY "Parents view child sessions" ON study_sessions FOR SELECT USING (
-    EXISTS (SELECT 1 FROM parent_student_links WHERE parent_id = auth.uid() AND student_id = study_sessions.student_id)
-);
-DROP POLICY IF EXISTS "Students manage own sessions" ON study_sessions;
-CREATE POLICY "Students manage own sessions" ON study_sessions FOR ALL USING (auth.uid() = student_id);
-DROP POLICY IF EXISTS "Moderators view all sessions" ON study_sessions;
-CREATE POLICY "Moderators view all sessions" ON study_sessions FOR SELECT USING (is_moderator());
-
--- calendar_events
-ALTER TABLE calendar_events ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Parents view child calendar" ON calendar_events;
-CREATE POLICY "Parents view child calendar" ON calendar_events FOR SELECT USING (
-    EXISTS (SELECT 1 FROM parent_student_links WHERE parent_id = auth.uid() AND student_id = calendar_events.student_id)
-);
-DROP POLICY IF EXISTS "Moderators manage calendar" ON calendar_events;
-CREATE POLICY "Moderators manage calendar" ON calendar_events FOR ALL USING (is_moderator());
-
--- student_files
-ALTER TABLE student_files ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Parents view child files" ON student_files;
-CREATE POLICY "Parents view child files" ON student_files FOR SELECT USING (
-    EXISTS (SELECT 1 FROM parent_student_links WHERE parent_id = auth.uid() AND student_id = student_files.student_id)
-);
-DROP POLICY IF EXISTS "Students view own files" ON student_files;
-CREATE POLICY "Students view own files" ON student_files FOR SELECT USING (auth.uid() = student_id);
-DROP POLICY IF EXISTS "Moderators manage files" ON student_files;
-CREATE POLICY "Moderators manage files" ON student_files FOR ALL USING (is_moderator());
-
--- parent_moderator_threads
-ALTER TABLE parent_moderator_threads ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Parents view own threads" ON parent_moderator_threads;
-CREATE POLICY "Parents view own threads" ON parent_moderator_threads FOR SELECT USING (auth.uid() = parent_id);
-DROP POLICY IF EXISTS "Moderators view assigned threads" ON parent_moderator_threads;
-CREATE POLICY "Moderators view assigned threads" ON parent_moderator_threads FOR SELECT USING (auth.uid() = moderator_id);
-DROP POLICY IF EXISTS "Parents create threads" ON parent_moderator_threads;
-CREATE POLICY "Parents create threads" ON parent_moderator_threads FOR INSERT WITH CHECK (auth.uid() = parent_id);
-DROP POLICY IF EXISTS "Moderators create threads" ON parent_moderator_threads;
-CREATE POLICY "Moderators create threads" ON parent_moderator_threads FOR INSERT WITH CHECK (auth.uid() = moderator_id);
-
--- parent_moderator_messages
-ALTER TABLE parent_moderator_messages ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Thread participants view messages" ON parent_moderator_messages;
-CREATE POLICY "Thread participants view messages" ON parent_moderator_messages FOR SELECT USING (
-    EXISTS (
-        SELECT 1 FROM parent_moderator_threads t
-        WHERE t.id = parent_moderator_messages.thread_id
-          AND (t.parent_id = auth.uid() OR t.moderator_id = auth.uid())
-    )
-);
-DROP POLICY IF EXISTS "Participants send messages" ON parent_moderator_messages;
-CREATE POLICY "Participants send messages" ON parent_moderator_messages FOR INSERT WITH CHECK (
-    auth.uid() = sender_id AND EXISTS (
-        SELECT 1 FROM parent_moderator_threads t
-        WHERE t.id = parent_moderator_messages.thread_id
-          AND (t.parent_id = auth.uid() OR t.moderator_id = auth.uid())
-    )
-);
-DROP POLICY IF EXISTS "Participants mark read" ON parent_moderator_messages;
-CREATE POLICY "Participants mark read" ON parent_moderator_messages FOR UPDATE USING (
-    EXISTS (
-        SELECT 1 FROM parent_moderator_threads t
-        WHERE t.id = parent_moderator_messages.thread_id
-          AND (t.parent_id = auth.uid() OR t.moderator_id = auth.uid())
-    )
-);
-
--- grade_history
-ALTER TABLE grade_history ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Parents view child grades" ON grade_history;
-CREATE POLICY "Parents view child grades" ON grade_history FOR SELECT USING (
-    EXISTS (SELECT 1 FROM parent_student_links WHERE parent_id = auth.uid() AND student_id = grade_history.student_id)
-);
-DROP POLICY IF EXISTS "Students view own grades" ON grade_history;
-CREATE POLICY "Students view own grades" ON grade_history FOR SELECT USING (auth.uid() = student_id);
-DROP POLICY IF EXISTS "System insert grades" ON grade_history;
-CREATE POLICY "System insert grades" ON grade_history FOR INSERT WITH CHECK (true);
-DROP POLICY IF EXISTS "Moderators manage grades" ON grade_history;
-CREATE POLICY "Moderators manage grades" ON grade_history FOR ALL USING (is_moderator());
-
--- learning_milestones
-ALTER TABLE learning_milestones ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Parents view child milestones" ON learning_milestones;
-CREATE POLICY "Parents view child milestones" ON learning_milestones FOR SELECT USING (
-    EXISTS (SELECT 1 FROM parent_student_links WHERE parent_id = auth.uid() AND student_id = learning_milestones.student_id)
-);
-DROP POLICY IF EXISTS "Students view own milestones" ON learning_milestones;
-CREATE POLICY "Students view own milestones" ON learning_milestones FOR SELECT USING (auth.uid() = student_id);
-DROP POLICY IF EXISTS "System insert milestones" ON learning_milestones;
-CREATE POLICY "System insert milestones" ON learning_milestones FOR INSERT WITH CHECK (true);
-
--- Update existing notifications policies to allow parent visibility
-DROP POLICY IF EXISTS "Parents view own notifications" ON notifications;
-CREATE POLICY "Parents view own notifications" ON notifications
-    FOR SELECT USING (auth.uid() = user_id);
-
-DROP POLICY IF EXISTS "Users update own notifications" ON notifications;
-CREATE POLICY "Users update own notifications" ON notifications
-    FOR UPDATE USING (auth.uid() = user_id);
-
--- =============================================================
--- 6. ENABLE REALTIME
--- =============================================================
-
-ALTER PUBLICATION supabase_realtime ADD TABLE parent_moderator_messages;
-ALTER PUBLICATION supabase_realtime ADD TABLE parent_moderator_threads;
-ALTER PUBLICATION supabase_realtime ADD TABLE calendar_events;
-ALTER PUBLICATION supabase_realtime ADD TABLE student_activity_log;
-
-
--- =============================================================
--- 7. REALTIME ENABLEMENT (UPDATED)
--- =============================================================
-
-BEGIN;
-    DROP PUBLICATION IF EXISTS supabase_realtime;
-    CREATE PUBLICATION supabase_realtime FOR TABLE
-        games, todos, profiles, student_progress, level_chats,
-        direct_messages, internal_tasks, exam_attempts,
-        lecture_task_submissions, notifications, assignment_overrides,
-        parent_moderator_messages, parent_moderator_threads,
-        calendar_events, student_activity_log;
-COMMIT;
-
-
--- =============================================================
--- 8. ADDITIONAL INDEXES
--- =============================================================
-
-CREATE INDEX IF NOT EXISTS idx_level_chats_lecture_id ON level_chats(lecture_id);
-CREATE INDEX IF NOT EXISTS idx_task_submissions_status ON lecture_task_submissions(status);
-CREATE INDEX IF NOT EXISTS idx_task_submissions_student_lecture ON lecture_task_submissions(student_id, lecture_id);
-CREATE INDEX IF NOT EXISTS idx_assignment_overrides_student ON assignment_overrides(student_id);
-CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
-CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(user_id, is_read) WHERE is_read = false;
-CREATE INDEX IF NOT EXISTS idx_lectures_assignment ON lectures(assignment_required) WHERE assignment_required = true;
 CREATE INDEX IF NOT EXISTS idx_activity_student ON student_activity_log(student_id);
 CREATE INDEX IF NOT EXISTS idx_activity_type ON student_activity_log(activity_type);
 CREATE INDEX IF NOT EXISTS idx_activity_created ON student_activity_log(created_at);
@@ -2663,7 +2314,26 @@ BEGIN
         g.id,
         g.name
     FROM groups g
-    JOIN profiles p ON p.group_id = g.id
+    JOIN student_groups sg ON sg.group_id = g.id
+    JOIN group_level_assignments gla ON gla.group_id = g.id
+    JOIN level_templates lt ON lt.id = gla.level_template_id
+    WHERE sg.student_id = p_student_id
+      AND lt.is_published = true
+      AND lt.is_active = true
+    UNION
+    SELECT
+        lt.id,
+        lt.title,
+        lt.description,
+        lt.image_url,
+        lt.level_order,
+        lt.drip_interval_days,
+        gla.drip_override_days,
+        lt.is_published,
+        g.id,
+        g.name
+    FROM groups g
+    JOIN profiles p ON p.group_id = g.id AND p.group_id IS NOT NULL
     JOIN group_level_assignments gla ON gla.group_id = g.id
     JOIN level_templates lt ON lt.id = gla.level_template_id
     WHERE p.id = p_student_id
@@ -2695,8 +2365,16 @@ BEGIN
     IF p_student_id IS NOT NULL THEN
         SELECT gla.drip_override_days INTO v_drip_override
         FROM group_level_assignments gla
-        JOIN profiles p ON p.group_id = gla.group_id
-        WHERE p.id = p_student_id AND gla.level_template_id = p_level_template_id;
+        JOIN student_groups sg ON sg.group_id = gla.group_id
+        WHERE sg.student_id = p_student_id AND gla.level_template_id = p_level_template_id
+        LIMIT 1;
+        IF v_drip_override IS NULL THEN
+            SELECT gla.drip_override_days INTO v_drip_override
+            FROM group_level_assignments gla
+            JOIN profiles p ON p.group_id = gla.group_id AND p.group_id IS NOT NULL
+            WHERE p.id = p_student_id AND gla.level_template_id = p_level_template_id
+            LIMIT 1;
+        END IF;
     END IF;
 
     RETURN QUERY
@@ -2877,6 +2555,18 @@ BEGIN
         ON CONFLICT (group_id, level_template_id) DO NOTHING;
     END LOOP;
 
+    -- Also seed group_level_assignments from student_groups junction table
+    INSERT INTO group_level_assignments (group_id, level_template_id)
+    SELECT DISTINCT sg.group_id, lt.id
+    FROM student_groups sg
+    CROSS JOIN level_templates lt
+    WHERE lt.is_published = true
+      AND NOT EXISTS (
+          SELECT 1 FROM group_level_assignments gla
+          WHERE gla.group_id = sg.group_id AND gla.level_template_id = lt.id
+      )
+    ON CONFLICT (group_id, level_template_id) DO NOTHING;
+
     RETURN 'Migration complete. Groups: ' || array_length(v_group_names, 1) ||
            ', Levels: ' || (SELECT COUNT(*) FROM level_templates) ||
            ', Lectures: ' || (SELECT COUNT(*) FROM lecture_templates) ||
@@ -2931,6 +2621,118 @@ CREATE POLICY "Students view assigned exams" ON exam_templates FOR SELECT USING 
 ALTER PUBLICATION supabase_realtime ADD TABLE content_library;
 ALTER PUBLICATION supabase_realtime ADD TABLE groups;
 ALTER PUBLICATION supabase_realtime ADD TABLE group_level_assignments;
+ALTER PUBLICATION supabase_realtime ADD TABLE parent_moderator_messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE parent_moderator_threads;
+ALTER PUBLICATION supabase_realtime ADD TABLE calendar_events;
+ALTER PUBLICATION supabase_realtime ADD TABLE student_activity_log;
+
+-- Utility functions used by moderator UI
+CREATE OR REPLACE FUNCTION create_level_template_with_lectures(
+    p_title TEXT,
+    p_description TEXT,
+    p_image_url TEXT,
+    p_level_order INTEGER,
+    p_drip_interval_days INTEGER,
+    p_is_published BOOLEAN,
+    p_lectures JSONB
+) RETURNS UUID AS $$
+DECLARE
+    v_template_id UUID;
+    v_lecture JSONB;
+BEGIN
+    INSERT INTO level_templates (title, description, image_url, level_order, drip_interval_days, is_published, created_by)
+    VALUES (p_title, p_description, p_image_url, p_level_order, p_drip_interval_days, p_is_published, auth.uid())
+    RETURNING id INTO v_template_id;
+
+    FOR v_lecture IN SELECT * FROM jsonb_array_elements(p_lectures)
+    LOOP
+        INSERT INTO lecture_templates (
+            level_template_id, title, description, slot_number, drip_days,
+            is_live, is_big_exam, assignment_required, assignment_template_id, content_blocks
+        ) VALUES (
+            v_template_id,
+            v_lecture->>'title',
+            v_lecture->>'description',
+            (v_lecture->>'slot_number')::INTEGER,
+            COALESCE((v_lecture->>'drip_days')::INTEGER, 7),
+            COALESCE((v_lecture->>'is_live')::BOOLEAN, true),
+            COALESCE((v_lecture->>'is_big_exam')::BOOLEAN, false),
+            COALESCE((v_lecture->>'assignment_required')::BOOLEAN, false),
+            NULLIF(v_lecture->>'assignment_template_id', '')::UUID,
+            COALESCE(v_lecture->'content_blocks', '[]'::JSONB)
+        );
+    END LOOP;
+
+    RETURN v_template_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION assign_level_to_group(
+    p_group_id UUID,
+    p_level_template_id UUID,
+    p_drip_override_days INTEGER DEFAULT NULL,
+    p_custom_title TEXT DEFAULT NULL
+) RETURNS VOID AS $$
+BEGIN
+    INSERT INTO group_level_assignments (group_id, level_template_id, drip_override_days, custom_title)
+    VALUES (p_group_id, p_level_template_id, p_drip_override_days, p_custom_title)
+    ON CONFLICT (group_id, level_template_id) DO UPDATE SET
+        drip_override_days = p_drip_override_days,
+        custom_title = p_custom_title;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION remove_level_from_group(
+    p_group_id UUID,
+    p_level_template_id UUID
+) RETURNS VOID AS $$
+BEGIN
+    DELETE FROM group_level_assignments
+    WHERE group_id = p_group_id AND level_template_id = p_level_template_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION get_content_library_with_usage()
+RETURNS TABLE (
+    id UUID,
+    title TEXT,
+    file_type TEXT,
+    storage_url TEXT,
+    file_hash TEXT,
+    file_size BIGINT,
+    mime_type TEXT,
+    metadata JSONB,
+    usage_count BIGINT,
+    created_at TIMESTAMPTZ
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        cl.id,
+        cl.title,
+        cl.file_type,
+        cl.storage_url,
+        cl.file_hash,
+        cl.file_size,
+        cl.mime_type,
+        cl.metadata,
+        (SELECT COUNT(*) FROM lecture_templates lt
+         WHERE lt.content_blocks @> to_jsonb(cl.id::TEXT)) AS usage_count,
+        cl.created_at
+    FROM content_library cl
+    ORDER BY cl.created_at DESC;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Scheduled cleanup: remove ungraded submissions older than 7 days (requires pg_cron)
+CREATE OR REPLACE FUNCTION cleanup_old_task_submissions()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM lecture_task_submissions
+  WHERE submitted_at < NOW() - INTERVAL '7 days'
+    AND grade IS NULL;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 CREATE TABLE IF NOT EXISTS group_messages (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -2993,3 +2795,250 @@ UPDATE student_progress SET group_id = '00000000-0000-0000-0000-000000000000'
 ALTER TABLE student_progress ALTER COLUMN group_id SET NOT NULL;
 ALTER TABLE student_progress DROP CONSTRAINT IF EXISTS student_progress_pkey CASCADE;
 ALTER TABLE student_progress ADD PRIMARY KEY (student_id, lecture_id, group_id);
+
+-- FK: exam_submissions.lecture_id -> lecture_templates(id)
+ALTER TABLE exam_submissions DROP CONSTRAINT IF EXISTS fk_exam_submissions_lecture;
+ALTER TABLE exam_submissions ADD CONSTRAINT fk_exam_submissions_lecture
+  FOREIGN KEY (lecture_id) REFERENCES lecture_templates(id) ON DELETE CASCADE;
+
+-- Missing performance indexes
+CREATE INDEX IF NOT EXISTS idx_student_progress_lecture ON student_progress(lecture_id);
+CREATE INDEX IF NOT EXISTS idx_quiz_attempts_student_lecture ON quiz_attempts(student_id, lecture_id);
+CREATE INDEX IF NOT EXISTS idx_exam_submissions_student ON exam_submissions(student_id);
+CREATE INDEX IF NOT EXISTS idx_parent_student_links_student ON parent_student_links(student_id);
+CREATE INDEX IF NOT EXISTS idx_level_access_level_id ON level_access(level_id);
+CREATE INDEX IF NOT EXISTS idx_student_groups_student_group ON student_groups(student_id, group_id);
+
+-- =============================================================
+-- 12c. GROUP-LEVEL RUNTIME SCOPING
+-- Every Level attachment to a Group is a "GroupLevel" (a row in
+-- group_level_assignments). All runtime data (chat, progress,
+-- submissions, exams, study sessions, quiz attempts, notes,
+-- activity) is anchored to the GroupLevel via group_level_id so
+-- that each Group has completely isolated runtime data even when
+-- the same Level content is shared across Groups.
+-- =============================================================
+
+-- 1. Add the group_level_id anchor column to runtime tables
+ALTER TABLE level_chats              ADD COLUMN IF NOT EXISTS group_level_id UUID REFERENCES group_level_assignments(id) ON DELETE CASCADE;
+ALTER TABLE student_progress         ADD COLUMN IF NOT EXISTS group_level_id UUID REFERENCES group_level_assignments(id) ON DELETE CASCADE;
+ALTER TABLE exam_submissions         ADD COLUMN IF NOT EXISTS group_level_id UUID REFERENCES group_level_assignments(id) ON DELETE CASCADE;
+ALTER TABLE lecture_task_submissions ADD COLUMN IF NOT EXISTS group_level_id UUID REFERENCES group_level_assignments(id) ON DELETE CASCADE;
+ALTER TABLE quiz_attempts            ADD COLUMN IF NOT EXISTS group_level_id UUID REFERENCES group_level_assignments(id) ON DELETE CASCADE;
+ALTER TABLE study_sessions           ADD COLUMN IF NOT EXISTS group_id UUID REFERENCES groups(id) ON DELETE CASCADE;
+ALTER TABLE study_sessions           ADD COLUMN IF NOT EXISTS group_level_id UUID REFERENCES group_level_assignments(id) ON DELETE CASCADE;
+ALTER TABLE moderator_notes          ADD COLUMN IF NOT EXISTS group_level_id UUID REFERENCES group_level_assignments(id) ON DELETE CASCADE;
+ALTER TABLE student_activity_log     ADD COLUMN IF NOT EXISTS group_level_id UUID REFERENCES group_level_assignments(id) ON DELETE CASCADE;
+ALTER TABLE grade_history            ADD COLUMN IF NOT EXISTS group_level_id UUID REFERENCES group_level_assignments(id) ON DELETE CASCADE;
+ALTER TABLE assignment_overrides     ADD COLUMN IF NOT EXISTS group_level_id UUID REFERENCES group_level_assignments(id) ON DELETE CASCADE;
+
+-- 2. Backfill existing rows so legacy data keeps its group-level anchor
+UPDATE level_chats lc
+SET group_level_id = gla.id
+FROM group_level_assignments gla
+WHERE lc.group_level_id IS NULL
+  AND lc.group_id IS NOT NULL
+  AND lc.level_id = gla.level_template_id
+  AND lc.group_id = gla.group_id;
+
+UPDATE student_progress sp
+SET group_level_id = gla.id
+FROM lecture_templates lt
+JOIN group_level_assignments gla ON gla.level_template_id = lt.level_template_id
+WHERE sp.group_level_id IS NULL
+  AND lt.id = sp.lecture_id
+  AND gla.group_id = sp.group_id;
+
+UPDATE exam_submissions es
+SET group_level_id = gla.id
+FROM lecture_templates lt
+JOIN group_level_assignments gla ON gla.level_template_id = lt.level_template_id
+WHERE es.group_level_id IS NULL
+  AND lt.id = es.lecture_id
+  AND gla.group_id = es.group_id;
+
+UPDATE lecture_task_submissions lts
+SET group_level_id = gla.id
+FROM lecture_templates lt
+JOIN group_level_assignments gla ON gla.level_template_id = lt.level_template_id
+WHERE lts.group_level_id IS NULL
+  AND lt.id = lts.lecture_id
+  AND gla.group_id = lts.group_id;
+
+UPDATE quiz_attempts qa
+SET group_level_id = gla.id
+FROM lecture_templates lt
+JOIN group_level_assignments gla ON gla.level_template_id = lt.level_template_id
+JOIN student_groups sg ON sg.group_id = gla.group_id
+WHERE qa.group_level_id IS NULL
+  AND lt.id = qa.lecture_id
+  AND sg.student_id = qa.student_id
+  AND NOT EXISTS (
+      SELECT 1 FROM group_level_assignments gla2
+      JOIN student_groups sg2 ON sg2.group_id = gla2.group_id
+      WHERE sg2.student_id = qa.student_id
+        AND gla2.level_template_id = lt.level_template_id
+        AND gla2.group_id <> gla.group_id
+  );
+
+UPDATE study_sessions ss
+SET group_id = gla.group_id, group_level_id = gla.id
+FROM lecture_templates lt
+JOIN group_level_assignments gla ON gla.level_template_id = lt.level_template_id
+JOIN student_groups sg ON sg.group_id = gla.group_id
+WHERE ss.group_level_id IS NULL
+  AND (ss.metadata->>'lecture_id')::UUID = lt.id
+  AND sg.student_id = ss.student_id
+  AND NOT EXISTS (
+      SELECT 1 FROM group_level_assignments gla2
+      JOIN student_groups sg2 ON sg2.group_id = gla2.group_id
+      WHERE sg2.student_id = ss.student_id
+        AND gla2.level_template_id = lt.level_template_id
+        AND gla2.group_id <> gla.group_id
+  );
+
+-- 3. Performance indexes on the new anchor column
+CREATE INDEX IF NOT EXISTS idx_level_chats_group_level ON level_chats(group_level_id);
+CREATE INDEX IF NOT EXISTS idx_student_progress_group_level ON student_progress(group_level_id);
+CREATE INDEX IF NOT EXISTS idx_exam_submissions_group_level ON exam_submissions(group_level_id);
+CREATE INDEX IF NOT EXISTS idx_task_submissions_group_level ON lecture_task_submissions(group_level_id);
+CREATE INDEX IF NOT EXISTS idx_quiz_attempts_group_level ON quiz_attempts(group_level_id);
+CREATE INDEX IF NOT EXISTS idx_study_sessions_group_level ON study_sessions(group_level_id);
+CREATE INDEX IF NOT EXISTS idx_study_sessions_group ON study_sessions(group_id) WHERE group_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_moderator_notes_group_level ON moderator_notes(group_level_id);
+CREATE INDEX IF NOT EXISTS idx_activity_log_group_level ON student_activity_log(group_level_id);
+CREATE INDEX IF NOT EXISTS idx_grade_history_group_level ON grade_history(group_level_id);
+CREATE INDEX IF NOT EXISTS idx_assignment_overrides_group_level ON assignment_overrides(group_level_id);
+
+-- 4. Helper: resolve the GroupLevel id for a group + level
+CREATE OR REPLACE FUNCTION get_group_level_id(p_group_id UUID, p_level_template_id UUID)
+RETURNS UUID AS $$
+DECLARE
+    v_id UUID;
+BEGIN
+    SELECT id INTO v_id
+    FROM group_level_assignments
+    WHERE group_id = p_group_id AND level_template_id = p_level_template_id
+    LIMIT 1;
+    RETURN v_id;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+-- 5. complete_lecture_secure now anchors progress on the GroupLevel
+DROP FUNCTION IF EXISTS complete_lecture_secure(uuid,uuid);
+CREATE OR REPLACE FUNCTION complete_lecture_secure(p_lecture_id UUID, p_group_id UUID DEFAULT NULL)
+RETURNS JSONB AS $$
+DECLARE
+  v_student_id UUID;
+  v_effective_group_id UUID;
+  v_group_level_id UUID;
+  v_level_id UUID;
+  v_row_count INTEGER;
+  v_inserted BOOLEAN;
+BEGIN
+  v_student_id := auth.uid();
+  IF v_student_id IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Not authenticated');
+  END IF;
+
+  IF NOT can_access_lecture(p_lecture_id, p_group_id) THEN
+    RETURN jsonb_build_object('success', false, 'error', 'Lecture locked or prerequisites not met.');
+  END IF;
+
+  SELECT level_template_id INTO v_level_id FROM lecture_templates WHERE id = p_lecture_id;
+
+  v_effective_group_id := p_group_id;
+
+  IF v_effective_group_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM groups WHERE id = v_effective_group_id) THEN
+    v_effective_group_id := NULL;
+  END IF;
+
+  IF v_effective_group_id IS NULL THEN
+    SELECT gla.group_id INTO v_effective_group_id
+    FROM group_level_assignments gla
+    JOIN get_my_group_ids() g ON g = gla.group_id
+    WHERE gla.level_template_id = v_level_id
+    LIMIT 1;
+  END IF;
+
+  IF v_effective_group_id IS NULL THEN
+    v_effective_group_id := '00000000-0000-0000-0000-000000000000';
+  END IF;
+
+  SELECT id INTO v_group_level_id
+  FROM group_level_assignments
+  WHERE group_id = v_effective_group_id AND level_template_id = v_level_id
+  LIMIT 1;
+
+  INSERT INTO student_progress (student_id, lecture_id, group_id, group_level_id)
+  VALUES (v_student_id, p_lecture_id, v_effective_group_id, v_group_level_id)
+  ON CONFLICT (student_id, lecture_id, group_id) DO NOTHING;
+
+  GET DIAGNOSTICS v_row_count = ROW_COUNT;
+  v_inserted := v_row_count > 0;
+
+  IF v_inserted THEN
+    UPDATE profiles SET
+      xp = COALESCE(xp, 0) + 50,
+      score = COALESCE(score, 0) + 10
+    WHERE id = v_student_id;
+  END IF;
+
+  RETURN jsonb_build_object('success', true, 'is_new', v_inserted);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =============================================================
+-- 12d. GROUP CHAT NOTIFICATIONS
+--
+-- When someone posts in a group's level_chat, notify every member
+-- of that group (except the sender) via the notifications table.
+-- The NotificationBell picks these up through realtime and shows
+-- the unread badge. Clicking the notification opens the chat.
+-- =============================================================
+CREATE OR REPLACE FUNCTION notify_group_chat_message()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_sender_name TEXT;
+    v_group_name TEXT;
+    v_context TEXT;
+    v_link TEXT;
+BEGIN
+    IF NEW.group_id IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    SELECT COALESCE(username, 'A member') INTO v_sender_name FROM profiles WHERE id = NEW.sender_id;
+    SELECT COALESCE(name, 'Group') INTO v_group_name FROM groups WHERE id = NEW.group_id;
+
+    IF NEW.lecture_id IS NOT NULL THEN
+        SELECT COALESCE(title, 'a lecture') INTO v_context FROM lecture_templates WHERE id = NEW.lecture_id;
+        v_link := '/lecture/' || NEW.lecture_id::text || '?tab=chat';
+    ELSE
+        SELECT COALESCE(title, 'the classroom') INTO v_context FROM level_templates WHERE id = NEW.level_id;
+        v_link := '/levels/classroom/' || NEW.level_id::text || '?group_id=' || NEW.group_id::text;
+    END IF;
+
+    INSERT INTO notifications (user_id, title, message, type, link)
+    SELECT
+        member_id,
+        'New chat message',
+        v_sender_name || ' posted in ' || v_group_name || ' - ' || v_context,
+        'message',
+        v_link
+    FROM (
+        SELECT student_id AS member_id FROM student_groups WHERE group_id = NEW.group_id
+        UNION
+        SELECT id AS member_id FROM profiles WHERE group_id = NEW.group_id
+    ) members
+    WHERE member_id <> NEW.sender_id;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_notify_group_chat_message ON level_chats;
+CREATE TRIGGER trg_notify_group_chat_message
+AFTER INSERT ON level_chats
+FOR EACH ROW
+EXECUTE FUNCTION notify_group_chat_message();

@@ -18,14 +18,19 @@ import { validateFile, sanitizeFilename, safeStoragePath } from "../../../lib/up
 
 export const Route = createFileRoute("/levels/classroom/$levelId")({
   component: LevelClassroomPage,
+  validateSearch: (search: Record<string, unknown>) => ({
+    group_id:
+      typeof search.group_id === "string" && search.group_id ? search.group_id : undefined,
+  }),
 });
 
 function LevelClassroomPage() {
   const params = Route.useParams();
   const { levelId } = params;
+  const { group_id: searchGroupId } = Route.useSearch();
   const { isAr } = useLanguage();
 
-  const { user, profile } = useAuth();
+  const { user, profile, isAdmin, isModerator } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -37,6 +42,7 @@ function LevelClassroomPage() {
   const [levelTitle, setLevelTitle] = useState("");
   const [groupName, setGroupName] = useState<string | null>(null);
   const [groupId, setGroupId] = useState<string | null>(null);
+  const [groupLevelId, setGroupLevelId] = useState<string | null>(null);
   const [levelContent, setLevelContent] = useState("");
   const [activeTab, setActiveTab] = useState<"chat" | "review">("chat");
   const [selectedChatTab, setSelectedChatTab] = useState<string>("general");
@@ -84,18 +90,23 @@ function LevelClassroomPage() {
       if (profileRes.data?.group_id) allGroupIds.add(profileRes.data.group_id);
       studentGroupsRes.data?.forEach((sg) => allGroupIds.add(sg.group_id));
 
+      // Admin/moderator can force a group via ?group_id= (from the levels page picker)
+      if (searchGroupId && (isAdmin || isModerator)) allGroupIds.add(searchGroupId);
+
       // Find which of the student's groups has access to this level
       let matchedGroupId: string | null = null;
       let matchedGroupName: string | null = null;
+      let matchedGroupLevelId: string | null = null;
       if (allGroupIds.size > 0) {
         const { data: assignments } = await supabase
           .from("group_level_assignments")
-          .select("group_id")
+          .select("id, group_id")
           .eq("level_template_id", levelId)
           .in("group_id", Array.from(allGroupIds));
         
         if (assignments && assignments.length > 0) {
           matchedGroupId = assignments[0].group_id;
+          matchedGroupLevelId = assignments[0].id;
         } else if (profileRes.data?.group_id) {
           matchedGroupId = profileRes.data.group_id;
         } else {
@@ -104,6 +115,7 @@ function LevelClassroomPage() {
 
         if (matchedGroupId) {
           setGroupId(matchedGroupId);
+          setGroupLevelId(matchedGroupLevelId);
           const { data: groupRes } = await supabase
             .from("groups")
             .select("name")
@@ -126,7 +138,7 @@ function LevelClassroomPage() {
       setLoading(false);
       navigate({ to: "/levels" });
     }
-  }, [levelId, user, navigate]);
+  }, [levelId, user, navigate, searchGroupId, isAdmin, isModerator]);
 
   useEffect(() => {
     fetchLevelDetailsAndAccess();
@@ -215,6 +227,7 @@ function LevelClassroomPage() {
             <LevelChat
               levelId={levelId}
               groupId={groupId}
+              groupLevelId={groupLevelId}
               lectureId={selectedChatTab !== "general" ? selectedChatTab : undefined}
               isAr={isAr}
             />
@@ -233,7 +246,7 @@ function LevelClassroomPage() {
   );
 }
 
-function LevelChat({ levelId, groupId, lectureId, isAr }: { levelId: string; groupId?: string | null; lectureId?: string; isAr: boolean }) {
+function LevelChat({ levelId, groupId, groupLevelId, lectureId, isAr }: { levelId: string; groupId?: string | null; groupLevelId?: string | null; lectureId?: string; isAr: boolean }) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const { profile, isAdmin, isModerator } = useAuth();
@@ -274,9 +287,13 @@ function LevelChat({ levelId, groupId, lectureId, isAr }: { levelId: string; gro
       query = query.eq("group_id", groupId);
     }
 
+    if (groupLevelId) {
+      query = query.eq("group_level_id", groupLevelId);
+    }
+
     const { data } = await query;
     if (data) setMessages(data);
-  }, [levelId, lectureId, groupId]);
+  }, [levelId, lectureId, groupId, groupLevelId]);
 
   useEffect(() => {
     fetchMessages();
@@ -287,6 +304,7 @@ function LevelChat({ levelId, groupId, lectureId, isAr }: { levelId: string; gro
       ? `lecture_id=eq.${lectureId}`
       : `level_id=eq.${levelId}`;
     if (groupId) filter += `,group_id=eq.${groupId}`;
+    if (groupLevelId) filter += `,group_level_id=eq.${groupLevelId}`;
     const subscription = supabase
       .channel(channelName)
       .on(
@@ -303,7 +321,7 @@ function LevelChat({ levelId, groupId, lectureId, isAr }: { levelId: string; gro
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, [levelId, lectureId, groupId, fetchMessages]);
+  }, [levelId, lectureId, groupId, groupLevelId, fetchMessages]);
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -325,6 +343,7 @@ function LevelChat({ levelId, groupId, lectureId, isAr }: { levelId: string; gro
       sender_id: profile.id,
       content: newMessage,
       group_id: groupId,
+      group_level_id: groupLevelId,
     };
     if (lectureId) insertData.lecture_id = lectureId;
     const { error } = await supabase.from("level_chats").insert([insertData]);
@@ -367,6 +386,7 @@ function LevelChat({ levelId, groupId, lectureId, isAr }: { levelId: string; gro
         sender_id: profile.id,
         content: `📎 ${isAr ? "ملف" : "FILE"}: ${safeName}\n${publicUrl}`,
         group_id: groupId,
+        group_level_id: groupLevelId,
       };
       if (lectureId) insertData.lecture_id = lectureId;
       const { error: insertError } = await supabase.from("level_chats").insert([insertData]);
@@ -438,6 +458,7 @@ function LevelChat({ levelId, groupId, lectureId, isAr }: { levelId: string; gro
                 </span>
               </div>
               <p
+                dir="auto"
                 className={`text-sm leading-relaxed p-5 rounded-3xl ${
                   m.sender_id === profile?.id
                     ? "bg-primary/10 text-primary border border-primary/20 rounded-tr-none"

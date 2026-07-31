@@ -15,6 +15,7 @@ import {
   ArrowRight,
   Search,
   X,
+  Users,
 } from "lucide-react";
 import { HeroButton } from "../../funs/HeroButton";
 import { AuthModal } from "../../components/AuthModal";
@@ -75,6 +76,8 @@ function LevelsPage() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [groupNames, setGroupNames] = useState<string[]>([]);
   const [moderatorNames, setModeratorNames] = useState<string[]>([]);
+  const [levelsGroupId, setLevelsGroupId] = useState<string | null>(null);
+  const [levelsGroups, setLevelsGroups] = useState<{ id: string; name: string }[]>([]);
 
   const fetchInitialData = useCallback(async () => {
     setLoading(true);
@@ -97,30 +100,22 @@ function LevelsPage() {
         supabase.from("exam_templates").select("level_template_id"),
       ]);
 
+      if (isAdmin || isModerator) {
+        const { data: allGroups } = await supabase.from("groups").select("id, name").order("name");
+        if (allGroups) setLevelsGroups(allGroups);
+      }
+
       if (levelsRes.data) setLevels(levelsRes.data.map(l => ({ ...l, id: l.id })));
       if (lecturesRes.data) setLectures(lecturesRes.data.map(l => ({ ...l, level_id: l.level_template_id })));
       setExams((examsRes.data || []).map(e => ({ level_id: e.level_template_id })));
 
       if (user) {
-        const [progressRes, profileRes, submissionsRes] = await Promise.all([
-          supabase
-            .from("student_progress")
-            .select("lecture_id")
-            .eq("student_id", user.id),
-          supabase
-            .from("profiles")
-            .select("group_id")
-            .eq("id", user.id)
-            .single(),
-          supabase
-            .from("exam_submissions")
-            .select("lecture_id, total_grade, graded_at")
-            .eq("student_id", user.id),
-        ]);
+        const profileRes = await supabase
+          .from("profiles")
+          .select("group_id")
+          .eq("id", user.id)
+          .single();
 
-        if (progressRes.data)
-          setProgress([...new Set(progressRes.data.map((p) => p.lecture_id))]);
-        
         // Gather all group_ids from junction table + legacy group_id
         const allGroupIds = new Set<string>();
         if (profileRes.data?.group_id) allGroupIds.add(profileRes.data.group_id);
@@ -130,13 +125,14 @@ function LevelsPage() {
           .eq("student_id", user.id);
         sgData?.forEach((sg) => allGroupIds.add(sg.group_id));
 
+        const groupLevelIds: string[] = [];
         if (allGroupIds.size > 0) {
           const groupIds = Array.from(allGroupIds);
           // Get access from ALL groups
           const [groupAccessRes, groupRes] = await Promise.all([
             supabase
               .from("group_level_assignments")
-              .select("level_template_id, assigned_at, group_id")
+              .select("level_template_id, assigned_at, group_id, id")
               .in("group_id", groupIds),
             supabase
               .from("groups")
@@ -146,6 +142,7 @@ function LevelsPage() {
           if (groupAccessRes.data) {
             const accessMap = new Map<string, { level_id: string; granted_at: string }>();
             groupAccessRes.data.forEach(a => {
+              if (a.id) groupLevelIds.push(a.id);
               if (!accessMap.has(a.level_template_id)) {
                 accessMap.set(a.level_template_id, { level_id: a.level_template_id, granted_at: a.assigned_at });
               }
@@ -164,6 +161,27 @@ function LevelsPage() {
             }
           }
         }
+
+        // Progress + submissions are scoped to the student's GroupLevels
+        // (legacy rows with NULL group_level_id are kept)
+        let progressQuery = supabase
+          .from("student_progress")
+          .select("lecture_id")
+          .eq("student_id", user.id);
+        let submissionsQuery = supabase
+          .from("exam_submissions")
+          .select("lecture_id, total_grade, graded_at")
+          .eq("student_id", user.id);
+        if (groupLevelIds.length > 0) {
+          const scoped = `group_level_id.in.(${groupLevelIds.join(",")}),group_level_id.is.null`;
+          progressQuery = progressQuery.or(scoped);
+          submissionsQuery = submissionsQuery.or(scoped);
+        }
+        const [progressRes, submissionsRes] = await Promise.all([progressQuery, submissionsQuery]);
+
+        if (progressRes.data)
+          setProgress([...new Set(progressRes.data.map((p) => p.lecture_id))]);
+
         setSubmissions(submissionsRes.data || []);
       }
     } finally {
@@ -291,6 +309,29 @@ function LevelsPage() {
                   <span>{isAr ? "المشرف" : "MODERATOR"}: {moderatorNames.join(", ")}</span>
                 </>
               )}
+            </motion.div>
+          )}
+          {(isAdmin || isModerator) && levelsGroups.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-3 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-muted/50 border border-border text-[10px] font-black uppercase tracking-widest text-muted-foreground"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <select
+                value={levelsGroupId || ""}
+                onChange={(e) => setLevelsGroupId(e.target.value || null)}
+                className="bg-background text-foreground rounded-lg px-2 py-1 border border-border focus:outline-none cursor-pointer"
+              >
+                <option value="" className="bg-background text-foreground">
+                  {isAr ? "اختر المجموعة لعرض محادثتها" : "PICK GROUP TO VIEW ITS CHAT"}
+                </option>
+                {levelsGroups.map((g) => (
+                  <option key={g.id} value={g.id} className="bg-background text-foreground">
+                    {g.name}
+                  </option>
+                ))}
+              </select>
             </motion.div>
           )}
         </header>
@@ -527,7 +568,7 @@ function LevelsPage() {
                                   <div className="mt-4 flex justify-end">
                                     <Link
                                       to={`/lecture/${lecture.id}`}
-                                      search={{ tab: "chat" }}
+                                      search={levelsGroupId ? { tab: "chat" as const, group_id: levelsGroupId } : { tab: "chat" as const }}
                                       onClick={(e) => e.stopPropagation()}
                                       className="p-2 rounded-xl bg-primary/10 border border-primary/20 text-primary hover:bg-primary/20 transition-all"
                                       title={isAr ? "محادثة الدرس" : "Lecture Chat"}
@@ -546,6 +587,7 @@ function LevelsPage() {
                         <Link
                           to="/levels/classroom/$levelId"
                           params={{ levelId: level.id }}
+                          search={{ group_id: levelsGroupId ?? undefined }}
                           className={`flex-1`}
                         >
                           <HeroButton className="w-full bg-white text-black h-10 md:h-12 rounded-xl md:rounded-2xl uppercase font-black tracking-widest italic flex items-center justify-center gap-2 text-[10px] md:text-xs">

@@ -31,6 +31,7 @@ interface LectureExamProps {
   isBigExam?: boolean;
   onPassed: () => void;
   groupId?: string | null;
+  groupLevelId?: string | null;
 }
 
 export function LectureExam({
@@ -41,6 +42,7 @@ export function LectureExam({
   isBigExam = false,
   onPassed,
   groupId,
+  groupLevelId,
 }: LectureExamProps) {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [answers, setAnswers] = useState<Record<string, any>>({});
@@ -127,6 +129,7 @@ export function LectureExam({
         student_id: user.id,
         lecture_id: lectureId,
         group_id: groupId,
+        group_level_id: groupLevelId,
         answers: formattedAnswers,
         mcq_score: Math.round(mcqPercentage),
         total_grade: needsGrading ? null : Math.round(mcqPercentage),
@@ -145,6 +148,7 @@ export function LectureExam({
           updated_at: new Date().toISOString(),
         };
         if (groupId) upsertPayload.group_id = groupId;
+        if (groupLevelId) upsertPayload.group_level_id = groupLevelId;
         await supabase.from("lecture_task_submissions").upsert(upsertPayload, { onConflict: "student_id,lecture_id,group_id" });
       }
 

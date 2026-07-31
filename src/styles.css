@@ -207,6 +207,19 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  /* Native select dropdowns: dark, theme-matched picker everywhere */
+  select {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+  }
+
+  option {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+
   code, pre, .tabular-nums, [data-mono] {
     font-family: "JetBrains Mono", ui-monospace, monospace;
   }

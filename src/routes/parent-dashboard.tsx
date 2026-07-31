@@ -1445,7 +1445,7 @@ function MessagesTab({ student, isAr, userId }: { student: any; isAr: boolean; u
                       ? "bg-primary text-primary-foreground rounded-2xl rounded-br-md"
                       : "bg-muted/60 text-foreground rounded-2xl rounded-bl-md"
                   }`}>
-                    <p>{msg.content}</p>
+                    <p dir="auto">{msg.content}</p>
                     <p className={`text-[8px] mt-1 ${isMe ? "text-primary-foreground/40" : "text-muted-foreground/40"}`}>
                       {new Date(msg.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       {msg.is_read && isMe ? " ✓✓" : ""}

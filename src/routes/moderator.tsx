@@ -142,6 +142,10 @@ function ModeratorDashboard() {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [courseBuilderInitialTab, setCourseBuilderInitialTab] = useState<"chat" | undefined>(undefined);
+  const [courseBuilderInitialGroupId, setCourseBuilderInitialGroupId] = useState<string | null>(null);
+  const [levelsGroupId, setLevelsGroupId] = useState<string | null>(null);
+  const [levelsGroups, setLevelsGroups] = useState<{ id: string; name: string }[]>([]);
   const [unreadChatNotifications, setUnreadChatNotifications] = useState<{
     [levelId: string]: number;
   }>({});
@@ -201,6 +205,15 @@ function ModeratorDashboard() {
     setLoading(false);
   };
 
+  const fetchLevelsGroups = async () => {
+    const { data } = await supabase.from("groups").select("id, name").order("name");
+    if (data) setLevelsGroups(data);
+  };
+
+  useEffect(() => {
+    fetchLevelsGroups();
+  }, []);
+
   if (!isModerator) {
     return (
       <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">
@@ -223,9 +236,18 @@ function ModeratorDashboard() {
           setIsEditing(false);
           fetchLevels();
         }}
+        initialTab={courseBuilderInitialTab}
+        initialGroupId={courseBuilderInitialGroupId}
       />
     );
   }
+
+  const openLevelChat = (levelId: string) => {
+    setSelectedLevelId(levelId);
+    setCourseBuilderInitialTab("chat");
+    setCourseBuilderInitialGroupId(levelsGroupId);
+    setIsEditing(true);
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col relative overflow-x-hidden font-sans selection:bg-primary/30">
@@ -423,16 +445,37 @@ function ModeratorDashboard() {
               </p>
             </div>
             {activeTab === "levels" && (
-              <HeroButton
-                onClick={() => {
-                  setSelectedLevelId(null);
-                  setIsEditing(true);
-                }}
-                className="bg-primary text-black px-4 md:px-6 h-9 md:h-10 rounded-xl md:rounded-2xl shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
-              >
-                <Plus className="w-3.5 h-3.5 mr-1.5" />
-                <span className="font-black italic uppercase tracking-widest text-[10px] md:text-xs">DEPLOY LEVEL</span>
-              </HeroButton>
+              <div className="flex items-center gap-2 flex-wrap justify-end">
+                <div className="flex items-center gap-2 bg-muted border border-border rounded-xl md:rounded-2xl px-3 py-2">
+                  <Users className="w-3.5 h-3.5 text-muted-foreground" />
+                  <select
+                    value={levelsGroupId || ""}
+                    onChange={(e) => setLevelsGroupId(e.target.value || null)}
+                    className="bg-background text-foreground rounded-lg px-2 py-1 border border-border text-[10px] font-black uppercase tracking-widest focus:outline-none cursor-pointer"
+                  >
+                    <option value="" className="bg-background text-foreground">
+                      {isAr ? "اختر المجموعة" : "PICK GROUP"}
+                    </option>
+                    {levelsGroups.map((g) => (
+                      <option key={g.id} value={g.id} className="bg-background text-foreground">
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <HeroButton
+                  onClick={() => {
+                    setSelectedLevelId(null);
+                    setCourseBuilderInitialTab(undefined);
+                    setCourseBuilderInitialGroupId(null);
+                    setIsEditing(true);
+                  }}
+                  className="bg-primary text-black px-4 md:px-6 h-9 md:h-10 rounded-xl md:rounded-2xl shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1.5" />
+                  <span className="font-black italic uppercase tracking-widest text-[10px] md:text-xs">DEPLOY LEVEL</span>
+                </HeroButton>
+              </div>
             )}
           </header>
 
@@ -472,8 +515,17 @@ function ModeratorDashboard() {
                       </div>
                       <div className="flex items-center gap-1.5 md:gap-2">
                         <button
+                          onClick={() => openLevelChat(level.id)}
+                          className="p-2 md:p-2.5 rounded-full bg-lime-500/10 border border-lime-500/20 hover:bg-lime-500 hover:text-black transition-all duration-500 hover:scale-110 text-lime-400"
+                          title={isAr ? "محادثة المستوى للمجموعة المحددة" : "Level chat for selected group"}
+                        >
+                          <MessageSquare className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => {
                             setSelectedLevelId(level.id);
+                            setCourseBuilderInitialTab(undefined);
+                            setCourseBuilderInitialGroupId(null);
                             setIsEditing(true);
                           }}
                           className="p-2 md:p-2.5 rounded-full bg-muted/50 border border-border hover:bg-primary hover:text-black transition-all duration-500 hover:scale-110"
@@ -1454,6 +1506,7 @@ export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: 
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [selectedLectureId, setSelectedLectureId] = useState<string | null>(null);
   const [levelChatGroupId, setLevelChatGroupId] = useState<string | null>(null);
+  const [levelChatGroupLevelId, setLevelChatGroupLevelId] = useState<string | null>(null);
   const [levelLectures, setLevelLectures] = useState<Record<string, { id: string; title: string; slot_number: number }[]>>({});
   const [expandedLevels, setExpandedLevels] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<any[]>([]);
@@ -1491,11 +1544,14 @@ export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: 
     } else if (selectedChatType === "level" && selectedLevelId && levelChatGroupId) {
       fetchMessages();
       const channelName = selectedLectureId
-        ? `lecture_chat:${selectedLectureId}`
-        : `level_chat:${selectedLevelId}`;
+        ? `lecture_chat:${selectedLectureId}:${levelChatGroupId}`
+        : `level_chat:${selectedLevelId}:${levelChatGroupId}`;
       const filter = selectedLectureId
-        ? `lecture_id=eq.${selectedLectureId}`
-        : `level_id=eq.${selectedLevelId}`;
+        ? `lecture_id=eq.${selectedLectureId},group_id=eq.${levelChatGroupId}`
+        : `level_id=eq.${selectedLevelId},group_id=eq.${levelChatGroupId}`;
+      const filterWithGroupLevel = levelChatGroupLevelId
+        ? `${filter},group_level_id=eq.${levelChatGroupLevelId}`
+        : filter;
       subscription = supabase
         .channel(channelName)
         .on(
@@ -1504,7 +1560,7 @@ export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: 
             event: "INSERT",
             schema: "public",
             table: "level_chats",
-            filter,
+            filter: filterWithGroupLevel,
           },
           () => {
             fetchMessages();
@@ -1515,7 +1571,7 @@ export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: 
     return () => {
       if (subscription) supabase.removeChannel(subscription);
     };
-  }, [selectedChatType, selectedUserId, selectedLevelId, selectedLectureId, levelChatGroupId, myProfile?.id]);
+  }, [selectedChatType, selectedUserId, selectedLevelId, selectedLectureId, levelChatGroupId, levelChatGroupLevelId, myProfile?.id]);
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -1628,7 +1684,12 @@ export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: 
         .from("level_chats")
         .select("*, sender:profiles!sender_id(username, avatar_url, role)")
         .eq("level_id", selectedLevelId)
+        .eq("group_id", levelChatGroupId)
         .order("created_at", { ascending: true });
+
+      if (levelChatGroupLevelId) {
+        query = query.eq("group_level_id", levelChatGroupLevelId);
+      }
 
       if (selectedLectureId) {
         query = query.eq("lecture_id", selectedLectureId);
@@ -1669,6 +1730,8 @@ export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: 
         level_id: selectedLevelId,
         sender_id: myProfile.id,
         content: newMessage,
+        group_id: levelChatGroupId,
+        group_level_id: levelChatGroupLevelId,
       };
       if (selectedLectureId) insertData.lecture_id = selectedLectureId;
       const { error } = await supabase.from("level_chats").insert([insertData]);
@@ -1689,14 +1752,24 @@ export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: 
     setSelectedLevelId(null);
     setSelectedLectureId(null);
     setLevelChatGroupId(null);
+    setLevelChatGroupLevelId(null);
     setMessages([]);
   };
 
-  const selectLevelChat = (levelId: string, groupId: string, lectureId?: string) => {
+  const selectLevelChat = async (levelId: string, groupId: string, lectureId?: string) => {
+    let groupLevelId: string | null = null;
+    const { data: gla } = await supabase
+      .from("group_level_assignments")
+      .select("id")
+      .eq("group_id", groupId)
+      .eq("level_template_id", levelId)
+      .maybeSingle();
+    if (gla) groupLevelId = gla.id;
     setSelectedChatType("level");
     setSelectedLevelId(levelId);
     setSelectedLectureId(lectureId || null);
     setLevelChatGroupId(groupId);
+    setLevelChatGroupLevelId(groupLevelId);
     setSelectedUserId(null);
     setMessages([]);
     setNewMessage("");
@@ -1878,6 +1951,7 @@ export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: 
                   setSelectedLevelId(null);
                   setSelectedLectureId(null);
                   setLevelChatGroupId(null);
+                  setLevelChatGroupLevelId(null);
                   setBrowsingGroupId(null);
                   setMessages([]);
                   setNewMessage("");
@@ -1913,7 +1987,7 @@ export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: 
             {/* Chat header */}
             <header className="bg-muted/60 backdrop-blur-md px-4 py-3 border-b border-border flex items-center gap-3">
               <button
-                onClick={() => { setSelectedChatType(null); setSelectedUserId(null); setSelectedLevelId(null); setSelectedLectureId(null); setLevelChatGroupId(null); setMessages([]); }}
+                onClick={() => { setSelectedChatType(null); setSelectedUserId(null); setSelectedLevelId(null); setSelectedLectureId(null); setLevelChatGroupId(null); setLevelChatGroupLevelId(null); setMessages([]); }}
                 className="md:hidden p-1.5 rounded-full hover:bg-foreground/10 transition-colors"
               >
                 <ArrowLeft className="w-5 h-5" />
@@ -2008,6 +2082,7 @@ export function MessagingHub({ isAr, isModerator, isAdmin, isStudent }: { isAr: 
                           </div>
                         )}
                         <div
+                          dir="auto"
                           className={`px-3.5 py-2.5 text-sm leading-relaxed break-words shadow-sm ${
                             isMe
                               ? "bg-primary text-primary-foreground rounded-2xl rounded-tr-sm border border-primary/20"
@@ -2295,13 +2370,28 @@ function TaskSubmissionsGrid({ lectureId, levelId, isAr }: { lectureId: string; 
   );
 }
 
-function CourseBuilder({ levelId, onBack }: { levelId: string | null; onBack: () => void }) {
+function CourseBuilder({
+  levelId,
+  onBack,
+  initialTab,
+  initialGroupId,
+}: {
+  levelId: string | null;
+  onBack: () => void;
+  initialTab?: "chat";
+  initialGroupId?: string | null;
+}) {
   const { isAr } = useLanguage();
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<"info" | "curriculum" | "exam" | "bulk_upload" | "analytics" | "chat">(
-    "info",
+    initialTab || "info",
   );
   const [selectedLectureIdx, setSelectedLectureIdx] = useState<number | null>(0); // Can be null if no lecture selected
+
+  // Chat Tab State (group-scoped level chat)
+  const [chatGroups, setChatGroups] = useState<{ id: string; name: string; group_level_id: string }[]>([]);
+  const [chatGroupId, setChatGroupId] = useState<string | null>(null);
+  const [chatGroupLevelId, setChatGroupLevelId] = useState<string | null>(null);
 
   // Level Info State
   const [levelTitle, setLevelTitle] = useState("");
@@ -2342,6 +2432,33 @@ function CourseBuilder({ levelId, onBack }: { levelId: string | null; onBack: ()
       .order("level_order", { ascending: false })
       .limit(1);
     if (data && data.length > 0) setLevelOrder(data[0].level_order + 1);
+  };
+
+  const loadChatGroups = useCallback(async () => {
+    if (!levelId) return;
+    const { data } = await supabase
+      .from("group_level_assignments")
+      .select("id, group_id, groups(name)")
+      .eq("level_template_id", levelId);
+    const list = (data || []).map((g: any) => ({
+      id: g.group_id,
+      name: g.groups?.name || "Untitled",
+      group_level_id: g.id,
+    }));
+    setChatGroups(list);
+    const preferred = initialGroupId && list.some((g) => g.id === initialGroupId) ? initialGroupId : null;
+    const selected = preferred ? list.find((g) => g.id === preferred) : list[0];
+    setChatGroupId(selected?.id || null);
+    setChatGroupLevelId(selected?.group_level_id || null);
+  }, [levelId, initialGroupId]);
+
+  useEffect(() => {
+    if (initialTab === "chat" && levelId) loadChatGroups();
+  }, [initialTab, levelId, loadChatGroups]);
+
+  const selectChatGroup = (groupId: string, groupLevelId: string) => {
+    setChatGroupId(groupId);
+    setChatGroupLevelId(groupLevelId);
   };
 
   const loadLevelData = async () => {
@@ -2904,6 +3021,7 @@ function CourseBuilder({ levelId, onBack }: { levelId: string | null; onBack: ()
               onClick={() => {
                 setActiveTab("chat" as any);
                 setSelectedLectureIdx(null);
+                loadChatGroups();
               }}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl md:rounded-2xl transition-all border ${activeTab === "chat" ? "bg-lime-500 text-black border-lime-400" : "text-muted-foreground border-border hover:text-foreground"}`}
             >
@@ -3593,7 +3711,16 @@ function CourseBuilder({ levelId, onBack }: { levelId: string | null; onBack: ()
               </motion.div>
             )}
 
-            {(activeTab as any) === "chat" && <LectureChat levelId={levelId!} isAr={isAr} />}
+            {(activeTab as any) === "chat" && (
+              <LectureChat
+                levelId={levelId!}
+                isAr={isAr}
+                groupId={chatGroupId}
+                groupLevelId={chatGroupLevelId}
+                chatGroups={chatGroups}
+                onSelectGroup={selectChatGroup}
+              />
+            )}
           </AnimatePresence>
         </main>
       </div>
@@ -3601,22 +3728,51 @@ function CourseBuilder({ levelId, onBack }: { levelId: string | null; onBack: ()
   );
 }
 
-function LectureChat({ levelId, isAr }: { levelId: string; isAr: boolean }) {
+function LectureChat({
+  levelId,
+  isAr,
+  groupId,
+  groupLevelId,
+  chatGroups,
+  onSelectGroup,
+}: {
+  levelId: string;
+  isAr: boolean;
+  groupId?: string | null;
+  groupLevelId?: string | null;
+  chatGroups?: { id: string; name: string; group_level_id: string }[];
+  onSelectGroup?: (groupId: string, groupLevelId: string) => void;
+}) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const { profile } = useAuth();
 
+  const fetchMessages = useCallback(async () => {
+    let query = supabase
+      .from("level_chats")
+      .select("*, profiles(username, avatar_url, role)")
+      .eq("level_id", levelId)
+      .order("created_at", { ascending: true });
+    if (groupId) query = query.eq("group_id", groupId);
+    if (groupLevelId) query = query.eq("group_level_id", groupLevelId);
+    const { data } = await query;
+    if (data) setMessages(data);
+  }, [levelId, groupId, groupLevelId]);
+
   useEffect(() => {
     fetchMessages();
+    let filter = `level_id=eq.${levelId}`;
+    if (groupId) filter += `,group_id=eq.${groupId}`;
+    if (groupLevelId) filter += `,group_level_id=eq.${groupLevelId}`;
     const subscription = supabase
-      .channel(`lecture:${levelId}`)
+      .channel(`lecture:${levelId}:${groupId || "all"}`)
       .on(
         "postgres_changes",
         {
           event: "INSERT",
           schema: "public",
           table: "level_chats",
-          filter: `level_id=eq.${levelId}`,
+          filter,
         },
         () => fetchMessages(),
       )
@@ -3624,77 +3780,106 @@ function LectureChat({ levelId, isAr }: { levelId: string; isAr: boolean }) {
     return () => {
       subscription.unsubscribe();
     };
-  }, [levelId]);
-
-  const fetchMessages = async () => {
-    const { data } = await supabase
-      .from("level_chats")
-      .select("*, profiles(username, avatar_url, role)")
-      .eq("level_id", levelId)
-      .order("created_at", { ascending: true });
-    if (data) setMessages(data);
-  };
+  }, [levelId, groupId, groupLevelId, fetchMessages]);
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !profile) return;
-    await supabase
-      .from("level_chats")
-      .insert([{ level_id: levelId, sender_id: profile.id, content: newMessage }]);
+    if (!newMessage.trim() || !profile || !groupId || !groupLevelId) return;
+    await supabase.from("level_chats").insert([
+      {
+        level_id: levelId,
+        group_id: groupId,
+        group_level_id: groupLevelId,
+        sender_id: profile.id,
+        content: newMessage,
+      },
+    ]);
     setNewMessage("");
   };
 
   return (
     <div className="h-full flex flex-col bg-foreground/20 rounded-[40px] border border-border overflow-hidden">
-      <header className="p-6 border-b border-border flex items-center justify-between">
+      <header className="p-6 border-b border-border flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-4">
           <MessageSquare className="w-5 h-5 text-lime-400" />
           <h3 className="font-black italic uppercase tracking-widest text-sm">
             {isAr ? "المحادثة التكتيكية" : "TACTICAL COMM-LINK"}
           </h3>
         </div>
+        {chatGroups && chatGroups.length > 0 && onSelectGroup && (
+          <select
+            value={groupId || ""}
+            onChange={(e) => {
+              const g = chatGroups.find((cg) => cg.id === e.target.value);
+              if (g) onSelectGroup(g.id, g.group_level_id);
+            }}
+            className="bg-background text-foreground rounded-lg px-2 py-1 border border-border text-xs font-black uppercase tracking-widest focus:outline-none cursor-pointer"
+          >
+            <option value="" className="bg-background text-foreground">
+              {isAr ? "اختر المجموعة" : "PICK GROUP"}
+            </option>
+            {chatGroups.map((g) => (
+              <option key={g.group_level_id} value={g.id} className="bg-background text-foreground">
+                {g.name}
+              </option>
+            ))}
+          </select>
+        )}
       </header>
-      <div className="flex-1 overflow-y-auto p-8 space-y-4 custom-scrollbar">
-        {messages.map((m, i) => (
-          <div key={i} className="flex gap-4">
-            <div className="w-10 h-10 rounded-xl bg-muted/50 overflow-hidden flex-shrink-0">
-              {m.profiles?.avatar_url && (
-                <img src={m.profiles.avatar_url} className="w-full h-full object-cover" />
-              )}
-            </div>
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="font-bold text-sm">{m.profiles?.username}</span>
-                <span
-                  className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${m.profiles?.role === "admin" ? "bg-red-500/20 text-red-500" : "bg-muted/50 text-muted-foreground"}`}
-                >
-                  {m.profiles?.role}
-                </span>
+      {chatGroups && chatGroups.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-muted-foreground font-black uppercase tracking-widest text-xs p-8 text-center">
+          {isAr ? "هذا المستوى غير مرتبط بأي مجموعة بعد" : "This level is not assigned to any group yet"}
+        </div>
+      ) : (
+        <>
+          <div className="flex-1 overflow-y-auto p-8 space-y-4 custom-scrollbar">
+            {messages.map((m, i) => (
+              <div key={i} className="flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-muted/50 overflow-hidden flex-shrink-0">
+                  {m.profiles?.avatar_url && (
+                    <img src={m.profiles.avatar_url} className="w-full h-full object-cover" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-bold text-sm">{m.profiles?.username}</span>
+                    <span
+                      className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${m.profiles?.role === "admin" ? "bg-red-500/20 text-red-500" : "bg-muted/50 text-muted-foreground"}`}
+                    >
+                      {m.profiles?.role}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground bg-muted/50 p-4 rounded-2xl rounded-tl-none">
+                    {m.content}
+                  </p>
+                </div>
               </div>
-              <p className="text-sm text-muted-foreground bg-muted/50 p-4 rounded-2xl rounded-tl-none">
-                {m.content}
-              </p>
+            ))}
+            {messages.length === 0 && (
+              <div className="text-center text-muted-foreground font-black uppercase tracking-widest text-xs py-8">
+                {isAr ? "لا توجد رسائل بعد" : "AWAITING TRANSMISSION..."}
+              </div>
+            )}
+          </div>
+          <div className="p-6 bg-foreground/20 border-t border-border">
+            <div className="relative max-w-4xl mx-auto">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendMessage()}
+                placeholder="Transmit mission updates..."
+                className="w-full bg-muted/50 border border-border rounded-2xl py-5 pl-8 pr-16 font-bold focus:outline-none"
+              />
+              <button
+                onClick={sendMessage}
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-lime-500 text-black rounded-xl hover:scale-105 transition-all"
+              >
+                <Send className="w-4 h-4" />
+              </button>
             </div>
           </div>
-        ))}
-      </div>
-      <div className="p-6 bg-foreground/20 border-t border-border">
-        <div className="relative max-w-4xl mx-auto">
-          <input
-            type="text"
-            value={newMessage}
-            onChange={(e) => setNewMessage(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-            placeholder="Transmit mission updates..."
-            className="w-full bg-muted/50 border border-border rounded-2xl py-5 pl-8 pr-16 font-bold focus:outline-none"
-          />
-          <button
-            onClick={sendMessage}
-            className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-lime-500 text-black rounded-xl hover:scale-105 transition-all"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 }

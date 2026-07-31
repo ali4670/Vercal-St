@@ -49,6 +49,8 @@ export const Route = createFileRoute("/lecture/$lectureId")({
   component: LecturePage,
   validateSearch: (search: Record<string, unknown>) => ({
     tab: (search.tab === "chat" ? "chat" : "content") as "content" | "chat",
+    group_id:
+      typeof search.group_id === "string" && search.group_id ? search.group_id : undefined,
   }),
 });
 
@@ -518,7 +520,7 @@ function ContentRenderer({
   }
 }
 
-function LectureChat({ lectureId, levelId, groupId, isAr }: { lectureId: string; levelId: string; groupId?: string | null; isAr: boolean }) {
+function LectureChat({ lectureId, levelId, groupId, groupLevelId, isAr }: { lectureId: string; levelId: string; groupId?: string | null; groupLevelId?: string | null; isAr: boolean }) {
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const { profile, isAdmin, isModerator } = useAuth();
@@ -551,14 +553,18 @@ function LectureChat({ lectureId, levelId, groupId, isAr }: { lectureId: string;
     if (groupId) {
       query = query.eq("group_id", groupId);
     }
+    if (groupLevelId) {
+      query = query.eq("group_level_id", groupLevelId);
+    }
     const { data } = await query;
     if (data) setMessages(data);
-  }, [lectureId, groupId]);
+  }, [lectureId, groupId, groupLevelId]);
 
   useEffect(() => {
     fetchMessages();
     let filter = `lecture_id=eq.${lectureId}`;
     if (groupId) filter += `,group_id=eq.${groupId}`;
+    if (groupLevelId) filter += `,group_level_id=eq.${groupLevelId}`;
     const channelName = groupId ? `lecture_chat:${lectureId}:${groupId}` : `lecture_chat:${lectureId}`;
     const subscription = supabase
       .channel(channelName)
@@ -576,7 +582,7 @@ function LectureChat({ lectureId, levelId, groupId, isAr }: { lectureId: string;
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, [lectureId, groupId, fetchMessages]);
+  }, [lectureId, groupId, groupLevelId, fetchMessages]);
 
   useEffect(() => {
     if (chatContainerRef.current) {
@@ -598,6 +604,7 @@ function LectureChat({ lectureId, levelId, groupId, isAr }: { lectureId: string;
       sender_id: profile.id,
       content: newMessage,
       group_id: groupId,
+      group_level_id: groupLevelId,
     };
     const { error } = await supabase.from("level_chats").insert([insertData]);
     if (error) {
@@ -630,6 +637,7 @@ function LectureChat({ lectureId, levelId, groupId, isAr }: { lectureId: string;
         sender_id: profile.id,
         content: `📎 ${isAr ? "ملف" : "FILE"}: ${safeName}\n${publicUrl}`,
         group_id: groupId,
+        group_level_id: groupLevelId,
       };
       const { error: insertError } = await supabase.from("level_chats").insert([insertData]);
       if (insertError) throw insertError;
@@ -679,7 +687,7 @@ function LectureChat({ lectureId, levelId, groupId, isAr }: { lectureId: string;
                   {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                 </span>
               </div>
-              <p className={`text-sm leading-relaxed p-5 rounded-3xl ${
+              <p dir="auto" className={`text-sm leading-relaxed p-5 rounded-3xl ${
                 m.sender_id === profile?.id
                   ? "bg-primary/10 text-primary border border-primary/20 rounded-tr-none"
                   : "bg-muted text-foreground/70 border border-border rounded-tl-none"
@@ -740,7 +748,7 @@ function LectureChat({ lectureId, levelId, groupId, isAr }: { lectureId: string;
 
 function LecturePage() {
   const { lectureId } = Route.useParams();
-  const { tab } = Route.useSearch();
+  const { tab, group_id: searchGroupId } = Route.useSearch();
   const { isAr } = useLanguage();
   const { user, profile, isApproved, isAdmin, isModerator, refreshProfile } =
     useAuth();
@@ -789,6 +797,7 @@ function LecturePage() {
   const [taskFeedback, setTaskFeedback] = useState<string | null>(null);
   const [canProgress, setCanProgress] = useState(true);
   const [groupId, setGroupId] = useState<string | null>(null);
+  const [groupLevelId, setGroupLevelId] = useState<string | null>(null);
 
   const handleVideoEnded = useCallback(() => {
     setIsVideoFinished(true);
@@ -823,6 +832,7 @@ function LecturePage() {
         file_url: publicUrl,
         status: "pending",
         group_id: groupId,
+        group_level_id: groupLevelId,
         updated_at: new Date().toISOString(),
       }, { onConflict: "student_id,lecture_id,group_id" });
       if (dbError) throw dbError;
@@ -911,22 +921,28 @@ function LecturePage() {
           .eq("student_id", user.id);
         sgData?.forEach((sg) => allGroupIds.add(sg.group_id));
 
+        // Admin/moderator can force a group via ?group_id= (from the levels page picker)
+        if (searchGroupId && (isAdmin || isModerator)) allGroupIds.add(searchGroupId);
+
         let computedGroupId: string | null = null;
+        let computedGroupLevelId: string | null = null;
         if (allGroupIds.size > 0) {
           const groupIds = Array.from(allGroupIds);
           const { data: groupAccess } = await supabase
             .from("group_level_assignments")
-            .select("level_template_id, group_id")
+            .select("id, level_template_id, group_id")
             .in("group_id", groupIds)
             .eq("level_template_id", data.level_template_id);
           if (groupAccess && groupAccess.length > 0) {
             computedGroupId = groupAccess[0].group_id;
+            computedGroupLevelId = groupAccess[0].id;
           } else if (profileRes.data?.group_id) {
             computedGroupId = profileRes.data.group_id;
           } else {
             computedGroupId = groupIds[0];
           }
           setGroupId(computedGroupId);
+          setGroupLevelId(computedGroupLevelId);
         }
 
         // Group-scoped lecture access check
@@ -947,6 +963,7 @@ function LecturePage() {
           .eq("student_id", user.id)
           .eq("lecture_id", lectureId);
         if (computedGroupId) progressQuery = progressQuery.eq("group_id", computedGroupId);
+        if (computedGroupLevelId) progressQuery = progressQuery.eq("group_level_id", computedGroupLevelId);
         const [progressDataRes, canAccessRes] = await Promise.all([
           progressQuery,
           supabase.rpc("can_student_access_level", {
@@ -969,6 +986,7 @@ function LecturePage() {
         } else {
           taskSubQuery = taskSubQuery.is("group_id", null);
         }
+        if (computedGroupLevelId) taskSubQuery = taskSubQuery.eq("group_level_id", computedGroupLevelId);
         const { data: taskSub } = await taskSubQuery.maybeSingle();
         if (taskSub) {
           setTaskImageUrl(taskSub.image_url);
@@ -1011,7 +1029,7 @@ function LecturePage() {
     } finally {
       setLoading(false);
     }
-  }, [lectureId, user, isAdmin, isModerator, navigate]);
+  }, [lectureId, user, isAdmin, isModerator, navigate, searchGroupId]);
 
   useEffect(() => {
     fetchLecture();
@@ -1092,6 +1110,8 @@ function LecturePage() {
           student_id: user.id,
           started_at: new Date().toISOString(),
           duration_minutes: 0,
+          group_id: groupId,
+          group_level_id: groupLevelId,
           metadata: { lecture_id: lectureId },
         })
         .select("id")
@@ -1126,7 +1146,7 @@ function LecturePage() {
       sessionIdRef.current = null;
       accumulatedMinutesRef.current = 0;
     };
-  }, [user, lectureId, isAdmin, isModerator, startStudyTimer, stopStudyTimer, flushSession]);
+  }, [user, lectureId, isAdmin, isModerator, startStudyTimer, stopStudyTimer, flushSession, groupId, groupLevelId]);
 
   // Hook into native video play/pause/ended events
   useEffect(() => {
@@ -1229,6 +1249,7 @@ function LecturePage() {
         questions={lecture?.quiz_data || []}
         isBigExam={lecture?.is_big_exam}
         groupId={groupId}
+        groupLevelId={groupLevelId}
         onPassed={() => {
           setIsExamOpen(false);
           handleComplete();
@@ -1262,7 +1283,7 @@ function LecturePage() {
 
         {activeTab === "chat" ? (
           <div className="h-[50dvh] md:h-[600px]">
-            <LectureChat lectureId={lectureId} levelId={lecture.level_id} groupId={groupId} isAr={isAr} />
+            <LectureChat lectureId={lectureId} levelId={lecture.level_id} groupId={groupId} groupLevelId={groupLevelId} isAr={isAr} />
           </div>
         ) : (
         <div className="space-y-12">
